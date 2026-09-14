@@ -91,25 +91,35 @@ const emptyForm: TemplateFormData = {
   buttons: [],
 };
 
-const COMMON_LANGUAGE_CODES = [
-  'en_US',
-  'en_GB',
-  'en',
-  'es',
-  'es_ES',
-  'es_MX',
-  'fr',
-  'fr_FR',
-  'de',
-  'it',
-  'pt_BR',
-  'pt_PT',
-  'nl',
-  'pl',
-  'ru',
-  'tr',
-  'lt',
+export interface SupportedLanguage {
+  label: string;
+  value: string;
+}
+
+export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+  { label: 'English (US)', value: 'en_US' },
+  { label: 'English (UK)', value: 'en_GB' },
+  { label: 'English', value: 'en' },
+  { label: 'Telugu', value: 'te' },
+  { label: 'Spanish', value: 'es' },
+  { label: 'Spanish (Spain)', value: 'es_ES' },
+  { label: 'Spanish (Mexico)', value: 'es_MX' },
+  { label: 'French', value: 'fr' },
+  { label: 'French (France)', value: 'fr_FR' },
+  { label: 'German', value: 'de' },
+  { label: 'Italian', value: 'it' },
+  { label: 'Portuguese (Brazil)', value: 'pt_BR' },
+  { label: 'Portuguese (Portugal)', value: 'pt_PT' },
+  { label: 'Dutch', value: 'nl' },
+  { label: 'Polish', value: 'pl' },
+  { label: 'Russian', value: 'ru' },
+  { label: 'Turkish', value: 'tr' },
+  { label: 'Lithuanian', value: 'lt' },
+  { label: 'Hindi', value: 'hi' },
+  { label: 'Arabic', value: 'ar' },
 ];
+
+const COMMON_LANGUAGE_CODES = SUPPORTED_LANGUAGES.map((l) => l.value);
 
 function emptyButton(type: TemplateButton['type']): TemplateButton {
   switch (type) {
@@ -705,21 +715,38 @@ export function TemplateManager() {
 
               <div className="space-y-2">
                 <Label className="text-muted-foreground">{t('language')}</Label>
-                <Input
-                  list="template-language-codes"
-                  placeholder="en_US"
+                <Select
                   value={form.language}
-                  onChange={(e) =>
-                    setForm({ ...form, language: e.target.value })
+                  onValueChange={(val) =>
+                    setForm({ ...form, language: val })
                   }
                   disabled={editingId !== null}
-                  className="bg-muted border-border text-foreground placeholder:text-muted-foreground disabled:opacity-60 disabled:cursor-not-allowed"
-                />
-                <datalist id="template-language-codes">
-                  {COMMON_LANGUAGE_CODES.map((code) => (
-                    <option key={code} value={code} />
-                  ))}
-                </datalist>
+                >
+                  <SelectTrigger className="w-full bg-muted border-border text-foreground">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-popover border-border max-h-60">
+                    {SUPPORTED_LANGUAGES.map((lang) => (
+                      <SelectItem
+                        key={lang.value}
+                        value={lang.value}
+                        className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                      >
+                        {lang.label} ({lang.value})
+                      </SelectItem>
+                    ))}
+                    {form.language &&
+                      !SUPPORTED_LANGUAGES.some((l) => l.value === form.language) && (
+                        <SelectItem
+                          key={form.language}
+                          value={form.language}
+                          className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                        >
+                          {form.language}
+                        </SelectItem>
+                      )}
+                  </SelectContent>
+                </Select>
                 <p className="text-[11px] text-muted-foreground">
                   {editingId ? (
                     t('langFixed')
