@@ -297,10 +297,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 )
                 .eq("user_id", userId)
                 .maybeSingle();
-              if (retryRes.data?.account_id && isAccountRole(retryRes.data?.account_role)) {
-                currentAccountId = retryRes.data.account_id;
-                currentAccountRole = retryRes.data.account_role;
-                setProfile((prev) => prev ? { ...prev, account_id: retryRes.data.account_id, account_role: retryRes.data.account_role as AccountRole } : prev);
+              const retryData = retryRes.data;
+              if (retryData?.account_id && isAccountRole(retryData.account_role)) {
+                const newAccountId = retryData.account_id;
+                const newAccountRole = retryData.account_role;
+                currentAccountId = newAccountId;
+                currentAccountRole = newAccountRole;
+                setProfile((prev) => prev ? { ...prev, account_id: newAccountId, account_role: newAccountRole as AccountRole } : prev);
               }
             }
           } catch {

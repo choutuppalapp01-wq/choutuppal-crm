@@ -18,7 +18,7 @@ import {
 import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Alert,
@@ -192,17 +192,19 @@ export function AccountAccessAlert() {
                   {copied ? "SQL Copied to Clipboard!" : "1. Copy Schema SQL"}
                 </Button>
 
-                <Button
-                  size="sm"
-                  variant="outline"
-                  asChild
-                  className="gap-1.5"
+                <a
+                  href={sqlEditorUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={buttonVariants({
+                    size: "sm",
+                    variant: "outline",
+                    className: "gap-1.5",
+                  })}
                 >
-                  <a href={sqlEditorUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="h-4 w-4" />
-                    2. Open Supabase SQL Editor
-                  </a>
-                </Button>
+                  <ExternalLink className="h-4 w-4" />
+                  2. Open Supabase SQL Editor
+                </a>
 
                 <Button
                   size="sm"
