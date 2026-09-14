@@ -64,9 +64,16 @@ const SECURITY_HEADERS = [
 ] as const;
 
 const nextConfig: NextConfig = {
-  turbopack: {
-    root: process.env.APP_DIR || "/app/applet",
+  experimental: {
+    useTypeScriptCli: true,
   },
+  ...(process.env.APP_DIR && !process.env.VERCEL
+    ? {
+        turbopack: {
+          root: process.env.APP_DIR,
+        },
+      }
+    : {}),
   // Emit a self-contained server bundle (.next/standalone) so the
   // Docker image can run without node_modules or the Next CLI.
   // Harmless outside Docker: `next start` keeps working as before.
