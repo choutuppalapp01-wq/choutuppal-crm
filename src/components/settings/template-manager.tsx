@@ -720,9 +720,11 @@ export function TemplateManager() {
                   onValueChange={(val) =>
                     setForm({ ...form, language: val })
                   }
-                  disabled={editingId !== null}
                 >
-                  <SelectTrigger className="w-full bg-muted border-border text-foreground">
+                  <SelectTrigger
+                    disabled={editingId !== null}
+                    className="w-full bg-muted border-border text-foreground"
+                  >
                     <SelectValue placeholder="Select language" />
                   </SelectTrigger>
                   <SelectContent className="bg-popover border-border max-h-60">
