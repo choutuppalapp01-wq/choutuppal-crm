@@ -80,7 +80,7 @@ interface TemplateFormData {
 const emptyForm: TemplateFormData = {
   name: '',
   category: 'Marketing',
-  language: 'en_US',
+  language: 'te',
   header_format: 'none',
   header_content: '',
   header_media_url: '',
@@ -97,10 +97,11 @@ export interface SupportedLanguage {
 }
 
 export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
+  { label: 'Telugu (te)', value: 'te' },
   { label: 'English (US)', value: 'en_US' },
   { label: 'English (UK)', value: 'en_GB' },
   { label: 'English', value: 'en' },
-  { label: 'Telugu', value: 'te' },
+  { label: 'Hindi (hi)', value: 'hi' },
   { label: 'Spanish', value: 'es' },
   { label: 'Spanish (Spain)', value: 'es_ES' },
   { label: 'Spanish (Mexico)', value: 'es_MX' },
@@ -115,7 +116,6 @@ export const SUPPORTED_LANGUAGES: SupportedLanguage[] = [
   { label: 'Russian', value: 'ru' },
   { label: 'Turkish', value: 'tr' },
   { label: 'Lithuanian', value: 'lt' },
-  { label: 'Hindi', value: 'hi' },
   { label: 'Arabic', value: 'ar' },
 ];
 
@@ -227,7 +227,7 @@ export function TemplateManager() {
     return {
       name: form.name.trim(),
       category: form.category,
-      language: form.language.trim() || 'en_US',
+      language: form.language.trim() || 'te',
       header_type: form.header_format === 'none' ? undefined : form.header_format,
       header_content:
         form.header_format === 'text' ? form.header_content.trim() : undefined,
@@ -248,7 +248,7 @@ export function TemplateManager() {
     setForm({
       name: template.name,
       category: template.category,
-      language: template.language || 'en_US',
+      language: template.language || 'te',
       header_format: (template.header_type ?? 'none') as HeaderFormat,
       header_content: template.header_content ?? '',
       header_media_url: template.header_media_url ?? '',

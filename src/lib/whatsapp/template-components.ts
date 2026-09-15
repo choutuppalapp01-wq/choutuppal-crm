@@ -10,7 +10,7 @@
  *   https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/components
  */
 
-import type { TemplatePayload } from './template-validators';
+import { extractVariableIndices, type TemplatePayload } from './template-validators';
 import type { TemplateButton } from '@/types';
 
 export interface MetaComponent {
@@ -36,17 +36,20 @@ interface MetaButtonPayload {
 
 function buildHeaderComponent(payload: TemplatePayload): MetaComponent | null {
   const { header_type, header_content, header_media_url, header_handle } = payload;
-  if (!header_type) return null;
+  if (!header_type || (header_type as string) === 'none') return null;
 
   if (header_type === 'text') {
+    if (!header_content?.trim()) return null;
+    const headerVars = extractVariableIndices(header_content);
     const headerSample = payload.sample_values?.header;
     const component: MetaComponent = {
       type: 'HEADER',
       format: 'TEXT',
-      text: header_content,
+      text: header_content.trim(),
     };
-    if (headerSample && headerSample.length > 0) {
-      component.example = { header_text: headerSample };
+    // Meta rule: header example must ONLY be included if header has {{1}} variable
+    if (headerVars.length > 0 && headerSample && headerSample.length > 0 && headerSample[0]?.trim()) {
+      component.example = { header_text: [headerSample[0].trim()] };
     }
     return component;
   }
@@ -71,46 +74,58 @@ function buildBodyComponent(payload: TemplatePayload): MetaComponent {
     type: 'BODY',
     text: payload.body_text,
   };
+  const bodyVars = extractVariableIndices(payload.body_text);
   const bodySample = payload.sample_values?.body;
-  if (bodySample && bodySample.length > 0) {
-    // Meta expects body_text as a 2D array — outer is "examples",
-    // inner is the values for each variable. We submit a single
-    // example row.
-    component.example = { body_text: [bodySample] };
+  // Meta rule: body example must ONLY be included if body has variables ({{1}}, {{2}}, etc.)
+  if (bodyVars.length > 0 && bodySample && bodySample.length >= bodyVars.length) {
+    const validSamples = bodySample.slice(0, bodyVars.length).map((s) => s.trim());
+    if (validSamples.every((s) => s.length > 0)) {
+      component.example = { body_text: [validSamples] };
+    }
   }
   return component;
 }
 
 function buildFooterComponent(payload: TemplatePayload): MetaComponent | null {
   if (!payload.footer_text?.trim()) return null;
-  return { type: 'FOOTER', text: payload.footer_text };
+  return { type: 'FOOTER', text: payload.footer_text.trim() };
 }
 
 function buildButtonPayload(b: TemplateButton): MetaButtonPayload {
   switch (b.type) {
     case 'QUICK_REPLY':
-      return { type: 'QUICK_REPLY', text: b.text };
+      return { type: 'QUICK_REPLY', text: b.text.trim() };
     case 'URL': {
       const payload: MetaButtonPayload = {
         type: 'URL',
-        text: b.text,
-        url: b.url,
+        text: b.text.trim(),
+        url: b.url?.trim() || '',
       };
-      if (b.example) payload.example = [b.example];
+      const urlVars = extractVariableIndices(b.url || '');
+      // Meta rule: URL example must ONLY be present if url contains {{1}}
+      if (urlVars.length > 0 && b.example?.trim()) {
+        payload.example = [b.example.trim()];
+      }
       return payload;
     }
     case 'PHONE_NUMBER':
-      return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phone_number };
+      return { type: 'PHONE_NUMBER', text: b.text.trim(), phone_number: b.phone_number?.trim() || '' };
     case 'COPY_CODE':
-      return { type: 'COPY_CODE', text: b.text, example: [b.example] };
+      return {
+        type: 'COPY_CODE',
+        text: b.text?.trim() || 'Copy Code',
+        example: b.example?.trim() ? [b.example.trim()] : undefined,
+      };
   }
 }
 
 function buildButtonsComponent(payload: TemplatePayload): MetaComponent | null {
   if (!payload.buttons || payload.buttons.length === 0) return null;
+  const validButtons = payload.buttons.filter((b) => b && b.text?.trim());
+  if (validButtons.length === 0) return null;
   return {
     type: 'BUTTONS',
-    buttons: payload.buttons.map(buildButtonPayload),
+    buttons: validButtons.map(buildButtonPayload),
   };
 }
 
@@ -120,15 +135,6 @@ export interface MetaTemplateSubmitPayload {
   language: string;
   components: MetaComponent[];
 }
-
-const CATEGORY_TO_META: Record<
-  'Marketing' | 'Utility' | 'Authentication',
-  MetaTemplateSubmitPayload['category']
-> = {
-  Marketing: 'MARKETING',
-  Utility: 'UTILITY',
-  Authentication: 'AUTHENTICATION',
-};
 
 /**
  * Assemble the full submit payload (name + category + language +
@@ -146,10 +152,18 @@ export function buildMetaTemplatePayload(
   const buttons = buildButtonsComponent(payload);
   if (buttons) components.push(buttons);
 
+  const rawCat = String(payload.category || 'Marketing').toUpperCase();
+  const category: MetaTemplateSubmitPayload['category'] =
+    rawCat === 'UTILITY'
+      ? 'UTILITY'
+      : rawCat === 'AUTHENTICATION'
+        ? 'AUTHENTICATION'
+        : 'MARKETING';
+
   return {
-    name: payload.name,
-    category: CATEGORY_TO_META[payload.category],
-    language: payload.language,
+    name: payload.name.trim(),
+    category,
+    language: payload.language?.trim() || 'te',
     components,
   };
 }

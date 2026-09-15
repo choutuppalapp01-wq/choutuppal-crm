@@ -39,6 +39,7 @@ function imgResponse(type = 'image/jpeg', size = 1024, ok = true, status = 200):
 
 describe('ensureImageHeaderHandle', () => {
   beforeEach(() => {
+    delete process.env.META_APP_ID;
     vi.mocked(uploadResumableMedia).mockClear();
     vi.mocked(isDeliverableUrl).mockClear();
     vi.mocked(isDeliverableUrl).mockResolvedValue(true);

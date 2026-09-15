@@ -108,6 +108,24 @@ describe('buildMetaTemplatePayload', () => {
     ]);
   });
 
+  it('omits example from static URL buttons and static headers without variables', () => {
+    const payload = buildMetaTemplatePayload({
+      ...base,
+      language: 'te',
+      header_type: 'text',
+      header_content: 'Static Header',
+      sample_values: { header: ['IgnoredSample'] },
+      buttons: [
+        { type: 'URL', text: 'Website', url: 'https://example.com', example: 'ignored' },
+      ],
+    });
+    const header = payload.components.find((c) => c.type === 'HEADER');
+    expect(header?.example).toBeUndefined();
+    const buttons = payload.components.find((c) => c.type === 'BUTTONS');
+    expect(buttons?.buttons?.[0]?.example).toBeUndefined();
+    expect(payload.language).toBe('te');
+  });
+
   it('orders components HEADER → BODY → FOOTER → BUTTONS', () => {
     const payload = buildMetaTemplatePayload({
       ...base,
