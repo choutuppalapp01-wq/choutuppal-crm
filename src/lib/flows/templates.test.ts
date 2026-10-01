@@ -24,13 +24,39 @@ describe("buildTemplateWithOverrides", () => {
 
     const baseNodes = new Map(base!.nodes.map((node) => [node.node_key, node]));
     const resultNodes = new Map(customized!.nodes.map((node) => [node.node_key, node]));
+    const edges = (nodes: typeof base.nodes) => nodes.flatMap((node) => {
+      const config = node.config as Record<string, unknown>;
+      const directTarget = config.next_node_key;
+      const buttonTargets = Array.isArray(config.buttons)
+        ? config.buttons.flatMap((button) => {
+            const target = (button as { next_node_key?: unknown }).next_node_key;
+            return typeof target === "string" ? [[node.node_key, target]] : [];
+          })
+        : [];
+      return [
+        ...(typeof directTarget === "string" ? [[node.node_key, directTarget]] : []),
+        ...buttonTargets,
+      ];
+    });
+
+    expect(base!.nodes).toHaveLength(3);
+    expect(customized!.nodes).toHaveLength(5);
+    expect(customized!.nodes.length - base!.nodes.length).toBe(2);
+    expect([...resultNodes.keys()]).toEqual(expect.arrayContaining([...baseNodes.keys()]));
+    expect(edges(customized!.nodes)).toEqual([
+      ["start", "welcome"],
+      ["welcome", "handoff_1"],
+      ["welcome", "csv_override_handoff_2"],
+      ["welcome", "csv_override_handoff_3"],
+    ]);
+    expect(resultNodes.get("handoff_1")).toEqual(baseNodes.get("handoff_1"));
     for (const [key, original] of baseNodes) {
       expect(resultNodes.has(key)).toBe(true);
       if (key !== "welcome") expect(resultNodes.get(key)).toEqual(original);
     }
 
     const originalEntryConfig = baseNodes.get("welcome")!.config as Record<string, unknown>;
-    const resultEntryConfig = resultNodes.get("welcome")!.config as Record<string, unknown>;
+     const resultEntryConfig = resultNodes.get("welcome")!.config as Record<string, unknown>;
     expect(resultEntryConfig.text).toBe("నమస్కారం! చౌటుప్పల్ యాప్‌కి స్వాగతం!");
     expect(resultEntryConfig.footer_text).toBe(originalEntryConfig.footer_text);
     expect(resultEntryConfig.media_url).toBe(originalEntryConfig.media_url);

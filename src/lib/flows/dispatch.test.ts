@@ -203,6 +203,35 @@ describe("entryTriggerTexts", () => {
 });
 
 describe("dispatchInboundToFlows — entry triggers (#490)", () => {
+  it("runs the persisted node snapshot without reloading a template by slug", async () => {
+    const persistedGreeting = "నమస్కారం! చౌటుప్పల్ యాప్‌కి స్వాగతం!";
+    h.state.flows = [
+      {
+        ...KEYWORD_FLOW,
+        template_slug: "welcome_menu",
+        trigger_config: { keywords: ["custom greeting"] },
+      },
+    ];
+    h.state.nodes = [
+      { ...NODES[0], config: { next_node_key: "greet" } },
+      {
+        ...NODES[1],
+        config: { text: persistedGreeting, next_node_key: "done" },
+      },
+      NODES[2],
+    ];
+
+    const result = await dispatch({
+      kind: "text",
+      text: "custom greeting",
+      meta_message_id: "snapshot-1",
+    });
+
+    expect(result.consumed).toBe(true);
+    expect(engineSendText).toHaveBeenCalledWith(expect.objectContaining({ text: persistedGreeting }));
+    expect(engineSendText).toHaveBeenCalledTimes(1);
+  });
+
   it("starts a keyword flow when the customer taps a matching button", async () => {
     h.state.flows = [KEYWORD_FLOW];
 

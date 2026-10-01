@@ -46,6 +46,17 @@ describe("flow CSV import requests", () => {
     });
   });
 
+  it("counts rejected API requests as failures instead of imports", async () => {
+    const request = vi.fn().mockRejectedValue(new Error("Network unavailable")) as unknown as typeof fetch;
+    const result = await importFlowCsvRows([templateRow], request);
+
+    expect(result).toEqual({
+      imported: 0,
+      failed: 1,
+      errors: ['"Welcome Menu": Network unavailable'],
+    });
+  });
+
   it("counts failed non-template PUTs as failures", async () => {
     const row: ParsedFlowRow = {
       name: "Simple welcome",

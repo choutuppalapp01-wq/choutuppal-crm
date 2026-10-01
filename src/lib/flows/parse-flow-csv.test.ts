@@ -22,10 +22,83 @@ describe("parseFlowCsv", () => {
     });
   });
 
+  it("parses quoted commas and doubled quotes without changing field contents", () => {
+    const result = parseFlowCsv([
+      "name,trigger_type,initial_message,description",
+      '"Sales, and Support",manual,"Say ""hello, team""", "Quoted, description"',
+    ].join("\n"));
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows[0]).toMatchObject({
+      name: "Sales, and Support",
+      initial_message: 'Say "hello, team"',
+      description: "Quoted, description",
+    });
+  });
+
   it("preserves literal backslash-n and message whitespace exactly", () => {
     const message = "  నమస్కారం!\\nదయచేసి ఎంపిక చేయండి  ";
     const result = parseFlowCsv(`name,trigger_type,initial_message\nFlow,manual,"${message}"`);
     expect(result.rows[0]?.initial_message).toBe(message);
+  });
+
+  it("leaves optional fields undefined when their CSV cells are empty", () => {
+    const result = parseFlowCsv([
+      "name,trigger_type,trigger_keywords,initial_message,button_options,template_slug,description",
+      "Blank fields,manual,,,,,",
+    ].join("\n"));
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ name: "Blank fields", trigger_type: "manual" });
+    expect(result.rows[0]).toMatchObject({
+      trigger_keywords: undefined,
+      initial_message: undefined,
+      button_options: undefined,
+      template_slug: undefined,
+      description: undefined,
+    });
+  });
+
+  it("retains duplicate rows as separate physical CSV records", () => {
+    const result = parseFlowCsv([
+      "name,trigger_type,trigger_keywords",
+      "Repeated,keyword,hello",
+      "Repeated,keyword,hello",
+    ].join("\n"));
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(2);
+    expect(result.rows.map((row) => row.rawLineIndex)).toEqual([2, 3]);
+    const contentRows = result.rows.map((row) => ({ ...row, rawLineIndex: 0 }));
+    expect(contentRows[0]).toEqual(contentRows[1]);
+  });
+
+  it("records physical-line numbers after blank lines", () => {
+    const result = parseFlowCsv([
+      "name,trigger_type",
+      "",
+      "Broken,keyword,\"line one",
+      "line two\",keyword,ignored",
+      "Good,manual",
+    ].join("\n"));
+
+    expect(result.errors).toEqual([
+      { line: 3, message: "Physical newlines inside quoted CSV records are not supported." },
+    ]);
+    expect(result.rows).toMatchObject([{ name: "Good", rawLineIndex: 5 }]);
+  });
+
+  it("rejects an unknown template_slug with a row-specific parser error", () => {
+    const result = parseFlowCsv([
+      "name,trigger_type,template_slug",
+      "Unknown,keyword,missing-template",
+    ].join("\n"));
+
+    expect(result.rows).toEqual([]);
+    expect(result.errors).toEqual([
+      { line: 2, message: 'Unknown template_slug "missing-template".' },
+    ]);
   });
 
   it("rejects unknown templates, excess buttons, and long labels by row", () => {
