@@ -86,8 +86,10 @@ describe("defaultConfigFor", () => {
     "send_message",
     "send_buttons",
     "send_list",
-    "send_media",
-    "collect_input",
+  "send_media",
+  "send_contact",
+  "collect_input",
+
     "condition",
     "set_tag",
     "handoff",
@@ -114,6 +116,15 @@ describe("defaultConfigFor", () => {
     };
     expect(cfg.sections?.length).toBeGreaterThan(0);
     expect(cfg.sections?.[0].rows.length).toBeGreaterThan(0);
+  });
+
+  it("send_contact starts with an editable contact and phone", () => {
+    const cfg = defaultConfigFor("send_contact") as {
+      contact_name?: string;
+      contacts?: Array<{ name: string; phones: Array<{ phone: string; type?: string }> }>;
+    };
+    expect(cfg.contact_name).toBe("");
+    expect(cfg.contacts?.[0].phones).toEqual([{ phone: "", type: "" }]);
   });
 
   it("send_media defaults to image (the most common case)", () => {

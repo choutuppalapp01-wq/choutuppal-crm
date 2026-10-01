@@ -93,6 +93,33 @@ describe("deriveCanvasEdges — single-outgoing node types", () => {
   });
 });
 
+describe("send_contact canvas edges", () => {
+  const contactNode: BuilderNode = {
+    node_key: "contact",
+    node_type: "send_contact",
+    config: {
+      contact_name: "Support",
+      contacts: [{ name: "Support", phones: [{ phone: "5551234" }] }],
+      next_node_key: "done",
+    },
+  };
+
+  it("derives the next connection and exposes one outgoing canvas handle", () => {
+    const edges = deriveCanvasEdges([
+      contactNode,
+      { node_key: "done", node_type: "end", config: {} },
+    ]);
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ source: "contact", target: "done", sourceHandle: "next" });
+    expect(outgoingSlots(contactNode)).toEqual([{ id: "next", label: "Next" }]);
+  });
+
+  it("updates and unlinks the contact node's next target", () => {
+    expect(applyEdgeConnection(contactNode, "next", "other")).toEqual({ next_node_key: "other" });
+    expect(unlinkNodeReferences([contactNode], "done")[0].config.next_node_key).toBe("");
+  });
+});
+
 describe("deriveCanvasEdges — condition (true/false branches)", () => {
   it("produces a labeled edge for each branch", () => {
     const edges = deriveCanvasEdges(

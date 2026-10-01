@@ -158,6 +158,112 @@ describe("validateFlowForActivation — trigger", () => {
   });
 });
 
+describe("validateFlowForActivation — send_contact", () => {
+  const contactNodes = (config: Record<string, unknown>) => [
+    { node_key: "start", node_type: "start", config: { next_node_key: "contact" } },
+    { node_key: "contact", node_type: "send_contact", config },
+    { node_key: "done", node_type: "end", config: {} },
+  ];
+  const validContactConfig = {
+    contact_name: "Choutuppal App",
+    contacts: [
+      {
+        name: "Choutuppal App",
+        phones: [{ phone: "9441348175", type: "CUSTOMER_CARE" }],
+      },
+    ],
+    next_node_key: "done",
+  };
+
+  it("accepts a well-formed contact node", () => {
+    expect(
+      validateFlowForActivation(
+        { ...validFlow, entry_node_id: "start" },
+        contactNodes(validContactConfig),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports a missing top-level contact name clearly", () => {
+    const config = { ...validContactConfig, contact_name: "" };
+    const issues = validateFlowForActivation(
+      { ...validFlow, entry_node_id: "start" },
+      contactNodes(config),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        node_key: "contact",
+        field: "contact_name",
+        message: "Send-contact needs a contact name.",
+      }),
+    );
+  });
+
+  it("accepts name as the alternate top-level display-name field", () => {
+    expect(
+      validateFlowForActivation(
+        { ...validFlow, entry_node_id: "start" },
+        contactNodes({ ...validContactConfig, contact_name: "", name: "Choutuppal App" }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("reports missing contacts", () => {
+    for (const config of [
+      { ...validContactConfig, contacts: [] },
+      { contact_name: "Support", next_node_key: "done" },
+    ]) {
+      const issues = validateFlowForActivation(
+        { ...validFlow, entry_node_id: "start" },
+        contactNodes(config),
+      );
+      expect(issues.some((issue) => issue.field === "contacts" && issue.message.includes("at least one contact"))).toBe(true);
+    }
+  });
+
+  it("reports contacts with no phone numbers", () => {
+    const issues = validateFlowForActivation(
+      { ...validFlow, entry_node_id: "start" },
+      contactNodes({
+        ...validContactConfig,
+        contacts: [{ name: "Support", phones: [] }],
+      }),
+    );
+    expect(issues.some((issue) => issue.field === "contacts.0.phones")).toBe(true);
+  });
+
+  it("rejects empty phone values and malformed phone entries", () => {
+    const issues = validateFlowForActivation(
+      { ...validFlow, entry_node_id: "start" },
+      contactNodes({
+        ...validContactConfig,
+        contacts: [{ name: "Support", phones: [{ phone: "  " }, null] }],
+      }),
+    );
+    expect(issues.some((issue) => issue.field === "contacts.0.phones.0.phone")).toBe(true);
+    expect(issues.some((issue) => issue.field === "contacts.0.phones.1")).toBe(true);
+  });
+
+  it("accepts multiple phone numbers and optional phone types", () => {
+    const issues = validateFlowForActivation(
+      { ...validFlow, entry_node_id: "start" },
+      contactNodes({
+        ...validContactConfig,
+        contacts: [
+          {
+            name: "Choutuppal App",
+            phones: [
+              { phone: "9441348175", type: "CUSTOMER_CARE" },
+              { phone: "9494348175" },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(issues).toEqual([]);
+  });
+});
+
 describe("validateFlowForActivation — nodes", () => {
   it("flags send_buttons without text", () => {
     const nodes = [

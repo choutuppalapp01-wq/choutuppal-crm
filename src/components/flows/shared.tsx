@@ -24,6 +24,7 @@ import {
   ListPlus,
   MessageCircle,
   Paperclip,
+  ContactRound,
   PlayCircle,
   Tag,
   UserPlus,
@@ -46,6 +47,7 @@ export type NodeType =
   | 'send_buttons'
   | 'send_list'
   | 'send_media'
+  | 'send_contact'
   | 'collect_input'
   | 'condition'
   | 'set_tag'
@@ -131,6 +133,13 @@ export const NODE_META: Record<
     blurb: 'Sends an image, video, or document',
     category: 'messaging',
   },
+  send_contact: {
+    label: 'Send contact',
+    icon: ContactRound,
+    color: 'text-emerald-400',
+    blurb: 'Sends a contact card or vCard',
+    category: 'messaging',
+  },
   collect_input: {
     label: 'Collect input',
     icon: Inbox,
@@ -202,6 +211,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   send_buttons: { l: 0.62, c: 0.16, h: 254 }, // cobalt
   send_list: { l: 0.62, c: 0.15, h: 277 }, // indigo
   send_media: { l: 0.65, c: 0.12, h: 210 }, // sky
+  send_contact: { l: 0.64, c: 0.14, h: 160 }, // green — contact card
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
@@ -352,6 +362,19 @@ export function summarizeNode(
         ? t
           ? t('optionsAcrossSections', { rowCount, sectionCount: sections.length })
           : `${rowCount} option${rowCount === 1 ? '' : 's'} across ${sections.length} section${sections.length === 1 ? '' : 's'}`
+        : null;
+    }
+    case 'send_contact': {
+      const contactName =
+        typeof cfg.contact_name === 'string' ? cfg.contact_name : '';
+      const contacts = Array.isArray(cfg.contacts)
+        ? (cfg.contacts as Array<Record<string, unknown>>)
+        : [];
+      const phoneCount = contacts.reduce<number>((total, contact) => {
+        return total + (Array.isArray(contact.phones) ? contact.phones.length : 0);
+      }, 0);
+      return contactName
+        ? `${truncate(contactName, 42)} · ${phoneCount} phone${phoneCount === 1 ? '' : 's'}`
         : null;
     }
     case 'send_media': {
