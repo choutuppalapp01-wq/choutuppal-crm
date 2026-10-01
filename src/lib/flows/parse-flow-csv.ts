@@ -7,7 +7,7 @@
  * - trigger_keywords (optional): Comma-separated trigger keywords (e.g. "hi,help,menu")
  * - initial_message (optional): Text greeting for the entry message
  * - button_options (optional): Semicolon-separated button titles (e.g. "Sales;Support;FAQ")
- * - template_slug (optional): Clones pre-built template graph ('welcome_menu', 'feedback_collector', 'lead_qualifier')
+ * - template_slug (optional): Clones an existing Flow template graph (e.g. 'welcome_menu', 'faq_bot', 'lead_capture')
  * - description (optional): Brief summary of what this flow does
  */
 
@@ -217,8 +217,8 @@ export function parseCsvLine(line: string): string[] {
 export function getFlowSampleCsv(): string {
   return `name,trigger_type,trigger_keywords,initial_message,button_options,template_slug,description
 "Welcome Menu & Routing",keyword,"hi,hello,menu,start","Welcome to our WhatsApp service! How can we assist you today?","Talk to Sales;Support Help;Book Demo",welcome_menu,"Multi-branch interactive greeting menu"
-"Customer Feedback Bot",keyword,"feedback,review,rate","Thank you for your recent purchase! How was your experience with us?","5 Stars Excellent;3 Stars Good;1 Star Needs Work",feedback_collector,"Automated post-service survey flow"
-"Lead Qualification Flow",keyword,"quote,pricing,buy","Hi there! To prepare a tailored quote, what best describes your needs?","Small Business;Mid-Market;Enterprise",lead_qualifier,"Qualifies inbound leads and gathers requirements"
+"Customer Feedback Bot",keyword,"feedback,review,rate","Thank you for your recent purchase! How was your experience with us?",,faq_bot,"Automated post-service survey flow"
+"Lead Qualification Flow",keyword,"quote,pricing,buy","Hi there! To prepare a tailored quote, what best describes your needs?",,lead_capture,"Qualifies inbound leads and gathers requirements"
 "First Contact Onboarding",first_inbound_message,"","Hello! Welcome to our channel. Choose an option to get started:","Explore Catalog;Track Order;Chat with Agent",,"Greets brand new incoming phone numbers with interactive buttons"
 "VIP Agent Handoff Flow",manual,"","Connecting you directly with a dedicated VIP representative...",,,"Manual trigger flow used by agents inside inbox"`;
 }
