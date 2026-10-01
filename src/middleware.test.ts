@@ -53,6 +53,30 @@ const ROTATED = {
   options: { path: "/", httpOnly: true },
 };
 
+describe("middleware — missing Supabase configuration", () => {
+  it("redirects pages to the setup notice without creating a client", async () => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    const res = await middleware(new NextRequest("https://app.test/login"));
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/setup-required");
+  });
+
+  it("returns a service unavailable response for API requests", async () => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    const res = await middleware(new NextRequest("https://app.test/api/contacts"));
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({
+      error: "Supabase is not configured for this preview.",
+    });
+  });
+});
+
 describe("middleware — refreshed auth cookies survive redirects", () => {
   it("carries the rotated token when redirecting a signed-in user off /login", async () => {
     mockUser = { id: "user-1" };
