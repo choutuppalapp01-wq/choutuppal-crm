@@ -97,6 +97,22 @@ export interface SendMediaNodeConfig {
   next_node_key: string;
 }
 
+export interface SendContactNodeConfig {
+  /** Contact's display name; retained as a fallback for older configs. */
+  contact_name?: string;
+  name?: string;
+  contacts: Array<{
+    name: string;
+    phones: Array<{
+      phone: string;
+      type?: string;
+    }>;
+  }>;
+  /** Auto-advance target after the contact card is sent. */
+  next_node_key: string;
+}
+
+
 export interface HandoffNodeConfig {
   /** Optional internal note written to flow_run_events.payload.note. */
   note?: string;
@@ -181,8 +197,8 @@ export type EndNodeConfig = Record<string, never>;
  * Add new node types here and the engine's switch will flag missing
  * cases via TypeScript's exhaustiveness check.
  *
- * v1.5+ additions (collect_input, condition, set_tag, http_fetch) will
- * extend this union — out-of-scope for the v1 engine PR.
+ * v1.5+ additions (collect_input, condition, set_tag, send_contact,
+ * http_fetch) extend this union alongside the original node types.
  */
 export type FlowNodeConfig =
   | { node_type: "start"; config: StartNodeConfig }
@@ -190,6 +206,7 @@ export type FlowNodeConfig =
   | { node_type: "send_buttons"; config: SendButtonsNodeConfig }
   | { node_type: "send_list"; config: SendListNodeConfig }
   | { node_type: "send_media"; config: SendMediaNodeConfig }
+  | { node_type: "send_contact"; config: SendContactNodeConfig }
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }

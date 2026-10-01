@@ -166,6 +166,12 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         filename: "",
         next_node_key: "",
       };
+    case "send_contact":
+      return {
+        contact_name: "",
+        contacts: [{ name: "", phones: [{ phone: "", type: "" }] }],
+        next_node_key: "",
+      };
     case "collect_input":
       return {
         prompt_text: "",

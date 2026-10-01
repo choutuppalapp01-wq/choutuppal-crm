@@ -278,6 +278,65 @@ export async function sendTextMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface WhatsAppContact {
+  name: string
+  phones: Array<{
+    phone: string
+    type?: string
+  }>
+}
+
+export interface ContactMessagePayloadArgs {
+  to: string
+  contacts: WhatsAppContact[]
+}
+
+export function buildContactMessagePayload({
+  to,
+  contacts,
+}: ContactMessagePayloadArgs): Record<string, unknown> {
+  return {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to,
+    type: 'contacts',
+    contacts: contacts.map((contact) => ({
+      name: { formatted_name: contact.name },
+      phones: contact.phones.map(({ phone, type }) => ({
+        phone,
+        ...(type?.trim() ? { type: type.trim() } : {}),
+      })),
+    })),
+  }
+}
+
+export interface SendContactMessageArgs extends ContactMessagePayloadArgs {
+  phoneNumberId: string
+  accessToken: string
+}
+
+export async function sendContactMessage(
+  args: SendContactMessageArgs,
+): Promise<MetaSendResult> {
+  if (!args.contacts.length) {
+    throw new Error('sendContactMessage requires at least one contact.')
+  }
+
+  const response = await fetch(`${META_API_BASE}/${args.phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${args.accessToken}`,
+    },
+    body: JSON.stringify(buildContactMessagePayload(args)),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+  const data = await response.json()
+  return { messageId: data.messages[0].id }
+}
+
 export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 
 export interface SendMediaMessageArgs {

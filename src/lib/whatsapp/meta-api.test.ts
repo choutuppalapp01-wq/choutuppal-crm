@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   INTERACTIVE_LIMITS,
+  buildContactMessagePayload,
+  sendContactMessage,
   sendInteractiveButtons,
   sendInteractiveList,
 } from "./meta-api";
@@ -20,6 +22,60 @@ const BASE_ARGS = {
   to: "1234567890",
   bodyText: "Body text",
 } as const;
+
+describe("WhatsApp contacts message payload", () => {
+  it("maps persisted contact data and multiple phones to Meta's contacts payload", () => {
+    expect(
+      buildContactMessagePayload({
+        to: "15551234567",
+        contacts: [
+          {
+            name: "Choutuppal App",
+            phones: [
+              { phone: "9441348175", type: "CUSTOMER_CARE" },
+              { phone: "9494348175" },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "15551234567",
+      type: "contacts",
+      contacts: [
+        {
+          name: { formatted_name: "Choutuppal App" },
+          phones: [
+            { phone: "9441348175", type: "CUSTOMER_CARE" },
+            { phone: "9494348175" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("sends the contacts payload with the existing Cloud API client", async () => {
+    let capturedBody: unknown;
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      capturedBody = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.CONTACT" }] }), { status: 200 });
+    }));
+    try {
+      await expect(
+        sendContactMessage({
+          phoneNumberId: "test-phone",
+          accessToken: "test-token",
+          to: "1234567890",
+          contacts: [{ name: "Support", phones: [{ phone: "5551234" }] }],
+        }),
+      ).resolves.toEqual({ messageId: "wamid.CONTACT" });
+      expect(capturedBody).toMatchObject({ type: "contacts", contacts: [{ name: { formatted_name: "Support" } }] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("sendInteractiveButtons — validation", () => {
   beforeEach(() => {
