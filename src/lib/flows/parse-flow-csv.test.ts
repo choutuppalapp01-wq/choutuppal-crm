@@ -1,7 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { parseFlowCsv } from "./parse-flow-csv";
+import { getFlowSampleCsv, parseFlowCsv } from "./parse-flow-csv";
+import { getFlowTemplate } from "./templates";
 
 describe("parseFlowCsv", () => {
+  it("provides a sample CSV using only existing template slugs", () => {
+    const result = parseFlowCsv(getFlowSampleCsv());
+
+    expect(result.errors).toEqual([]);
+    expect(result.rows).toHaveLength(5);
+    expect(result.rows.map((row) => row.template_slug).filter(Boolean)).toEqual([
+      "welcome_menu",
+      "faq_bot",
+      "lead_capture",
+    ]);
+    expect(result.rows.some((row) => row.template_slug === "lead_qualifier")).toBe(false);
+    expect(result.rows.every((row) => !row.template_slug || getFlowTemplate(row.template_slug))).toBe(true);
+  });
+
   it("preserves Telugu template overrides and parses mixed-language keywords", () => {
     const csv = [
       "name,description,trigger_type,trigger_keywords,initial_message,button_options,template_slug",

@@ -36,6 +36,10 @@ describe("WhatsApp contacts message payload", () => {
               { phone: "9494348175" },
             ],
           },
+          {
+            name: "Choutuppal Support",
+            phones: [{ phone: "9441348176", type: "WORK" }],
+          },
         ],
       }),
     ).toEqual({
@@ -50,6 +54,10 @@ describe("WhatsApp contacts message payload", () => {
             { phone: "9441348175", type: "CUSTOMER_CARE" },
             { phone: "9494348175" },
           ],
+        },
+        {
+          name: { formatted_name: "Choutuppal Support" },
+          phones: [{ phone: "9441348176", type: "WORK" }],
         },
       ],
     });
@@ -71,6 +79,24 @@ describe("WhatsApp contacts message payload", () => {
         }),
       ).resolves.toEqual({ messageId: "wamid.CONTACT" });
       expect(capturedBody).toMatchObject({ type: "contacts", contacts: [{ name: { formatted_name: "Support" } }] });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces Meta API failures for contact sends", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () =>
+      new Response(JSON.stringify({ error: { message: "Unsupported contact" } }), { status: 400 }),
+    ));
+    try {
+      await expect(
+        sendContactMessage({
+          phoneNumberId: "test-phone",
+          accessToken: "test-token",
+          to: "1234567890",
+          contacts: [{ name: "Support", phones: [{ phone: "5551234" }] }],
+        }),
+      ).rejects.toThrow("Unsupported contact");
     } finally {
       vi.unstubAllGlobals();
     }
