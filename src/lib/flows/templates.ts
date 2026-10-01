@@ -248,7 +248,9 @@ const TEMPLATES: Record<string, FlowTemplate> = {
 };
 
 export function getFlowTemplate(slug: string): FlowTemplate | null {
-  return TEMPLATES[slug] ?? null;
+  return Object.prototype.hasOwnProperty.call(TEMPLATES, slug)
+    ? TEMPLATES[slug]
+    : null;
 }
 
 export function listFlowTemplates(): FlowTemplate[] {
@@ -274,106 +276,95 @@ export function buildTemplateWithOverrides(
   const base = getFlowTemplate(slug);
   if (!base) return null;
 
-  // Deep clone base template structure
   const cloned: FlowTemplate = JSON.parse(JSON.stringify(base));
+  if (overrides.name !== undefined) cloned.name = overrides.name.trim();
+  if (overrides.description !== undefined && overrides.description !== null) {
+    cloned.description = overrides.description;
+  }
 
-  if (overrides.name?.trim()) {
-    cloned.name = overrides.name.trim();
-  }
-  if (
-    overrides.description !== undefined &&
-    overrides.description !== null &&
-    overrides.description.trim() !== ""
-  ) {
-    cloned.description = overrides.description.trim();
-  }
-  if (overrides.trigger_type) {
+  if (overrides.trigger_type !== undefined) {
     cloned.trigger_type = overrides.trigger_type;
+    if (overrides.trigger_type !== base.trigger_type) cloned.trigger_config = {};
   }
-  if (
-    overrides.trigger_keywords &&
-    overrides.trigger_keywords.length > 0 &&
-    cloned.trigger_type === "keyword"
-  ) {
+
+  if (overrides.trigger_keywords !== undefined) {
+    if (cloned.trigger_type !== "keyword") {
+      throw new Error("trigger_keywords can only be applied to keyword flows.");
+    }
+    if (overrides.trigger_keywords.length === 0) {
+      throw new Error("At least one trigger keyword is required.");
+    }
     cloned.trigger_config = {
-      keywords: overrides.trigger_keywords,
+      keywords: [...overrides.trigger_keywords],
       match_type: "contains",
     };
+  } else if (cloned.trigger_type === "keyword" && base.trigger_type !== "keyword") {
+    throw new Error("trigger_keywords are required when changing a template to a keyword trigger.");
   }
 
-  // Locate the entry node pointed to by 'start'
-  const startNode = cloned.nodes.find((n) => n.node_type === "start");
-  const entryMsgKey =
-    (startNode?.config as { next_node_key?: string })?.next_node_key || "welcome";
-  const entryMsgNode = cloned.nodes.find((n) => n.node_key === entryMsgKey);
+  const startNode = cloned.nodes.find((node) => node.node_type === "start");
+  const entryNodeKey =
+    (startNode?.config as { next_node_key?: string })?.next_node_key ??
+    cloned.entry_node_id;
+  const entryNode = cloned.nodes.find((node) => node.node_key === entryNodeKey);
 
-  // 1. Override initial greeting message text
-  if (overrides.initial_message && entryMsgNode) {
-    if ("text" in entryMsgNode.config) {
-      (entryMsgNode.config as { text: string }).text = overrides.initial_message;
-    } else if ("prompt_text" in entryMsgNode.config) {
-      (entryMsgNode.config as { prompt_text: string }).prompt_text = overrides.initial_message;
+  if (overrides.initial_message !== undefined) {
+    if (!entryNode) throw new Error("The template entry message node could not be found.");
+    const config = entryNode.config as Record<string, unknown>;
+    if (typeof config.text === "string") {
+      config.text = overrides.initial_message;
+    } else if (typeof config.prompt_text === "string") {
+      config.prompt_text = overrides.initial_message;
+    } else {
+      throw new Error("The template entry node does not support a message override.");
     }
   }
 
-  // 2. Attach Media (Photo / vCard)
-  if (entryMsgNode) {
-    const cfg = entryMsgNode.config as Record<string, unknown>;
-    if (overrides.media_type) {
-      cfg.media_type = overrides.media_type;
-    }
+  if (entryNode) {
+    const config = entryNode.config as Record<string, unknown>;
+    if (overrides.media_type) config.media_type = overrides.media_type;
     if (overrides.media_url) {
-      cfg.media_url = overrides.media_url;
-      if (overrides.media_type === "image") {
-        cfg.header_image_url = overrides.media_url;
-      }
+      config.media_url = overrides.media_url;
+      if (overrides.media_type === "image") config.header_image_url = overrides.media_url;
     }
   }
 
-  // 3. Override interactive button options dynamically
-  if (overrides.button_options && overrides.button_options.length > 0 && entryMsgNode) {
-    const rawButtons = overrides.button_options.slice(0, 3);
+  if (overrides.button_options !== undefined) {
+    const titles = overrides.button_options;
+    if (titles.length < 1 || titles.length > 3) {
+      throw new Error("button_options must contain between 1 and 3 labels.");
+    }
+    if (titles.some((title) => !title.trim() || title.length > 20)) {
+      throw new Error("Button labels must be non-empty and no longer than 20 characters.");
+    }
+    if (!entryNode || entryNode.node_type !== "send_buttons") {
+      throw new Error("The template entry node does not support button overrides.");
+    }
 
-    const newButtons: SendButtonsNodeConfig["buttons"] = [];
-    const newHandoffNodes: FlowTemplateNode[] = [];
+    const config = entryNode.config as SendButtonsNodeConfig;
+    const existingButtons = config.buttons ?? [];
+    const nodeKeys = new Set(cloned.nodes.map((node) => node.node_key));
+    const updatedButtons = titles.map((title, index) => {
+      const existing = existingButtons[index];
+      if (existing) return { ...existing, title };
 
-    rawButtons.forEach((title, idx) => {
-      const reply_id = `btn_${idx + 1}`;
-      const next_node_key = `handoff_${idx + 1}`;
-      newButtons.push({
-        reply_id,
-        title: title.slice(0, 20),
-        next_node_key,
-      });
-
-      newHandoffNodes.push({
-        node_key: next_node_key,
+      let nodeKey = `csv_override_handoff_${index + 1}`;
+      let suffix = 1;
+      while (nodeKeys.has(nodeKey)) nodeKey = `csv_override_handoff_${index + 1}_${suffix++}`;
+      nodeKeys.add(nodeKey);
+      cloned.nodes.push({
+        node_key: nodeKey,
         node_type: "handoff",
-        config: {
-          note: `Customer selected "${title}" from ${cloned.name}.`,
-        } as HandoffNodeConfig,
+        config: { note: `Customer selected "${title}" from ${cloned.name}.` },
       });
+      return {
+        reply_id: `csv_override_button_${index + 1}`,
+        title,
+        next_node_key: nodeKey,
+      };
     });
 
-    if (entryMsgNode.node_type === "send_buttons") {
-      const cfg = entryMsgNode.config as SendButtonsNodeConfig;
-      cfg.buttons = newButtons;
-    } else {
-      entryMsgNode.node_type = "send_buttons";
-      entryMsgNode.config = {
-        text:
-          (entryMsgNode.config as { text?: string }).text ||
-          overrides.initial_message ||
-          "స్వాగతం!",
-        buttons: newButtons,
-        ...(entryMsgNode.config as Record<string, unknown>),
-      };
-    }
-
-    const preservedNodes = cloned.nodes.filter(
-      (n) => n.node_key === "start" || n.node_key === entryMsgKey
-    );
-    cloned.nodes = [...preservedNodes, ...newHandoffNodes];
+    config.buttons = updatedButtons;
   }
 
   return cloned;

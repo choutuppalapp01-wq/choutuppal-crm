@@ -6,6 +6,7 @@ import {
   getFlowSampleCsv,
   type ParsedFlowRow,
 } from '@/lib/flows/parse-flow-csv';
+import { importFlowCsvRows } from '@/lib/flows/import-flow-row';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import {
@@ -108,129 +109,16 @@ export function FlowImportModal({
     if (parsedRows.length === 0) return;
     setImporting(true);
 
-    let imported = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
-    for (const row of parsedRows) {
-      try {
-        let trigger_config: Record<string, unknown> = {};
-        if (row.trigger_type === 'keyword') {
-          trigger_config = {
-            keywords: row.trigger_keywords && row.trigger_keywords.length > 0
-              ? row.trigger_keywords
-              : ['hi', 'hello'],
-            match_type: 'contains',
-          };
-        }
-
-        const payload: Record<string, unknown> = {
-          name: row.name,
-          description: row.description || null,
-          trigger_type: row.trigger_type,
-          trigger_config,
-        };
-
-        if (row.template_slug) {
-          payload.template_slug = row.template_slug;
-        }
-
-        const res = await fetch('/api/flows', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const errJson = await res.json().catch(() => ({}));
-          throw new Error(errJson.error || `HTTP ${res.status}`);
-        }
-
-        const json = await res.json();
-        const flowId = json?.flow?.id;
-
-        // If not using a template, but initial message or button options are provided,
-        // construct start + interactive message nodes and save to flow via PUT!
-        if (flowId && !row.template_slug && (row.initial_message || (row.button_options && row.button_options.length > 0))) {
-          const nodes = [];
-          nodes.push({
-            node_key: 'start',
-            node_type: 'start',
-            config: { next_node_key: 'welcome_msg' },
-            position_x: 100,
-            position_y: 100,
-          });
-
-          if (row.button_options && row.button_options.length > 0) {
-            const buttons = row.button_options.slice(0, 3).map((title, i) => ({
-              reply_id: `btn_${i + 1}`,
-              title: title.slice(0, 20),
-              next_node_key: `action_${i + 1}`,
-            }));
-
-            nodes.push({
-              node_key: 'welcome_msg',
-              node_type: 'send_buttons',
-              config: {
-                text: row.initial_message || 'Welcome! Please select an option below:',
-                buttons,
-              },
-              position_x: 100,
-              position_y: 220,
-            });
-
-            buttons.forEach((b, i) => {
-              nodes.push({
-                node_key: b.next_node_key,
-                node_type: 'send_message',
-                config: {
-                  text: `You selected "${b.title}". An agent will be in touch shortly!`,
-                  next_node_key: '',
-                },
-                position_x: 240 * (i + 1),
-                position_y: 380,
-              });
-            });
-          } else {
-            nodes.push({
-              node_key: 'welcome_msg',
-              node_type: 'send_message',
-              config: {
-                text: row.initial_message || 'Hello! Thank you for reaching out.',
-                next_node_key: '',
-              },
-              position_x: 100,
-              position_y: 220,
-            });
-          }
-
-          await fetch(`/api/flows/${flowId}`, {
-            method: 'PUT',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              entry_node_id: 'start',
-              nodes,
-            }),
-          });
-        }
-
-        imported++;
-      } catch (err) {
-        failed++;
-        const msg = err instanceof Error ? err.message : 'Creation failed';
-        errors.push(`"${row.name}": ${msg}`);
-      }
-    }
-
-    setResult({ imported, failed, errors });
+    const importResult = await importFlowCsvRows(parsedRows);
+    setResult(importResult);
     setImporting(false);
 
-    if (imported > 0) {
-      toast.success(`Successfully imported ${imported} flow(s).`);
+    if (importResult.imported > 0) {
+      toast.success(`Successfully imported ${importResult.imported} flow(s).`);
       onImported();
     }
-    if (failed > 0) {
-      toast.error(`Failed to import ${failed} flow(s).`);
+    if (importResult.failed > 0) {
+      toast.error(`Failed to import ${importResult.failed} flow(s).`);
     }
   }
 
