@@ -121,7 +121,7 @@ export default function FlowsPage() {
   };
 
   useEffect(() => {
-    loadFlows();
+    queueMicrotask(() => void loadFlows());
   }, []);
 
   async function handleCreate() {

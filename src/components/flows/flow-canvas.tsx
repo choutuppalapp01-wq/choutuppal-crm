@@ -355,7 +355,7 @@ function FlowCanvasInner() {
   const [rfNodes, setRfNodes] = useState<RfNode<NodeData>[]>(derivedRfNodes);
 
   useEffect(() => {
-    setRfNodes(derivedRfNodes);
+    queueMicrotask(() => setRfNodes(derivedRfNodes));
   }, [derivedRfNodes]);
 
   const rfEdges = useMemo(() => {

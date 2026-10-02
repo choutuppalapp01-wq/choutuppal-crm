@@ -1,8 +1,9 @@
-const fs = require('fs');
-const path = require('path');
-const { Client } = require('pg');
-
 async function main() {
+  const [{ default: fs }, { default: path }, { Client }] = await Promise.all([
+    import('node:fs'),
+    import('node:path'),
+    import('pg'),
+  ]);
   const envPath = path.join(process.cwd(), '.env.local');
   let env = {};
   if (fs.existsSync(envPath)) {

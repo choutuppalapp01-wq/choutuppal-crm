@@ -193,7 +193,7 @@ export default function BroadcastDetailPage() {
   }, [broadcastId, t]);
 
   useEffect(() => {
-    fetchData();
+    queueMicrotask(() => void fetchData());
   }, [fetchData]);
 
   const filteredRecipients = useMemo(
