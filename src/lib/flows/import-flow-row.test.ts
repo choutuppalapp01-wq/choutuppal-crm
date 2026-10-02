@@ -13,8 +13,10 @@ const templateRow: ParsedFlowRow = {
   rawLineIndex: 2,
 };
 
+type MockFetcher = typeof fetch & { mock: { calls: unknown[][] } };
+
 function fetchMock(...responses: Response[]) {
-  return vi.fn(async () => responses.shift() ?? Response.json({ error: "unexpected request" }, { status: 500 })) as unknown as typeof fetch;
+  return vi.fn(async () => responses.shift() ?? Response.json({ error: "unexpected request" }, { status: 500 })) as unknown as MockFetcher;
 }
 
 describe("flow CSV import requests", () => {

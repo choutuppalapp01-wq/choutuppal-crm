@@ -24,7 +24,7 @@ describe("buildTemplateWithOverrides", () => {
 
     const baseNodes = new Map(base!.nodes.map((node) => [node.node_key, node]));
     const resultNodes = new Map(customized!.nodes.map((node) => [node.node_key, node]));
-    const edges = (nodes: typeof base.nodes) => nodes.flatMap((node) => {
+    const edges = (nodes: NonNullable<typeof base>["nodes"]) => nodes.flatMap((node) => {
       const config = node.config as Record<string, unknown>;
       const directTarget = config.next_node_key;
       const buttonTargets = Array.isArray(config.buttons)
