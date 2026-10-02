@@ -47,7 +47,13 @@ jobs:
         run: npm run lint
 
       - name: Typecheck
+        # Public-repo ubuntu-latest runners provide 4 vCPU / 16 GB RAM.
+        # tsc's default V8 old-space ceiling (~4 GB) is unrelated to that
+        # budget and this project's type-check load exceeds it, so raise
+        # the ceiling for this step only; well within the runner's memory.
         run: npm run typecheck
+        env:
+          NODE_OPTIONS: '--max-old-space-size=8192'
 
       - name: Test
         run: npm test

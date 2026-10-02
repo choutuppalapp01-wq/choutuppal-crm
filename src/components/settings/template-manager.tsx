@@ -720,7 +720,7 @@ export function TemplateManager() {
                 <Select
                   value={form.language}
                   onValueChange={(val) =>
-                    setForm({ ...form, language: val })
+                    setForm({ ...form, language: val ?? form.language })
                   }
                 >
                   <SelectTrigger
