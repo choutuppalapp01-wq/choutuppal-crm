@@ -72,7 +72,9 @@ function InboxPageInner() {
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CONTACT_PANEL_STORAGE_KEY);
-      if (stored !== null) setContactPanelOpen(stored === "true");
+      if (stored !== null) {
+        queueMicrotask(() => setContactPanelOpen(stored === "true"));
+      }
     } catch {
       // localStorage can throw in private-browsing / sandboxed contexts.
     }

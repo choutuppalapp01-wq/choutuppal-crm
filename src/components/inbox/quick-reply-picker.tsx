@@ -36,7 +36,7 @@ export function QuickReplyPicker({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    setLoading(true);
+    queueMicrotask(() => setLoading(true));
     void (async () => {
       try {
         const res = await fetch("/api/quick-replies", { cache: "no-store" });

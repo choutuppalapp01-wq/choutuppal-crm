@@ -87,7 +87,7 @@ export default function BroadcastsPage() {
   }
 
   useEffect(() => {
-    fetchBroadcasts();
+    queueMicrotask(() => void fetchBroadcasts());
   }, []);
 
   const anySending = useMemo(

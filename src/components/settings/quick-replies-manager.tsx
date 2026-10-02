@@ -60,7 +60,7 @@ export function QuickRepliesManager() {
   }, []);
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, [load]);
 
   const openCreate = () => setDraft(emptyDraft());

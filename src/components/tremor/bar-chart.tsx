@@ -184,7 +184,7 @@ const ScrollButton = ({ icon, onClick, disabled }: ScrollButtonProps) => {
   React.useEffect(() => {
     if (disabled) {
       clearInterval(intervalRef.current as NodeJS.Timeout)
-      setIsPressed(false)
+      queueMicrotask(() => setIsPressed(false))
     }
   }, [disabled])
 
@@ -208,7 +208,7 @@ const ScrollButton = ({ icon, onClick, disabled }: ScrollButtonProps) => {
       }}
       onMouseUp={(e) => {
         e.stopPropagation()
-        setIsPressed(false)
+      queueMicrotask(() => setIsPressed(false))
       }}
     >
       <Icon className="size-full" aria-hidden="true" />
