@@ -223,7 +223,7 @@ export function Step2SelectAudience({
   ]);
 
   useEffect(() => {
-    fetchEstimatedCount();
+    queueMicrotask(() => void fetchEstimatedCount());
   }, [fetchEstimatedCount]);
 
   async function handleCsvChange(e: React.ChangeEvent<HTMLInputElement>) {

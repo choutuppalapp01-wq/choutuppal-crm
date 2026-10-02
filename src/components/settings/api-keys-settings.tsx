@@ -97,7 +97,7 @@ export function ApiKeysSettings() {
   }, []);
 
   useEffect(() => {
-    void load();
+    queueMicrotask(() => void load());
   }, [load]);
 
   async function handleRevoke(key: ApiKey) {

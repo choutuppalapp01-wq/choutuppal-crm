@@ -48,8 +48,10 @@ export function ProfileForm() {
   // Seed form state once the profile loads.
   useEffect(() => {
     if (!profile) return;
-    setFullName(profile.full_name ?? '');
-    setEmail(profile.email ?? '');
+    queueMicrotask(() => {
+      setFullName(profile.full_name ?? '');
+      setEmail(profile.email ?? '');
+    });
   }, [profile]);
 
   // Cleanup object URLs to avoid leaks.

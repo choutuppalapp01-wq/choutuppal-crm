@@ -86,7 +86,9 @@ export function AiThreadBanner({
   // instantly on click; re-seeds whenever the thread (or its server
   // state via realtime) changes.
   const [paused, setPaused] = useState(disabled);
-  useEffect(() => setPaused(disabled), [conversationId, disabled]);
+  useEffect(() => {
+    queueMicrotask(() => setPaused(disabled));
+  }, [conversationId, disabled]);
 
   useEffect(() => {
     if (!accountId) return;

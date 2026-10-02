@@ -59,10 +59,10 @@ export function TagManager() {
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
-      setLoading(false);
+      queueMicrotask(() => setLoading(false));
       return;
     }
-    fetchTags(user.id);
+    queueMicrotask(() => void fetchTags(user.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, user?.id]);
 
