@@ -119,6 +119,16 @@ export function NodeConfigForm({
         />
       );
 
+    case "send_contact":
+      return (
+        <SendContactForm
+          cfg={cfg as SendContactCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+        />
+      );
+
     case "send_media":
       return (
         <SendMediaForm
@@ -860,6 +870,197 @@ function useUserTags(): UserTag[] {
     };
   }, []);
   return tags;
+}
+
+// ============================================================
+// send_contact
+// ============================================================
+
+interface SendContactPhone {
+  phone?: string;
+  type?: string;
+}
+
+interface SendContactEntry {
+  name?: string;
+  phones?: SendContactPhone[];
+}
+
+interface SendContactCfg {
+  contact_name?: string;
+  name?: string;
+  contacts?: SendContactEntry[];
+  next_node_key?: string;
+}
+
+function SendContactForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+}: {
+  cfg: SendContactCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const fallbackName = cfg.contact_name ?? cfg.name ?? "";
+  const contacts = cfg.contacts?.length
+    ? cfg.contacts
+    : [{ name: fallbackName, phones: [{ phone: "", type: "" }] }];
+
+  const saveContacts = (nextContacts: NonNullable<SendContactCfg["contacts"]>) => {
+    onUpdateConfig({
+      contacts: nextContacts,
+      contact_name: nextContacts[0]?.name ?? "",
+    });
+  };
+
+  const updateContactName = (index: number, name: string) => {
+    saveContacts(contacts.map((contact, i) => (i === index ? { ...contact, name } : contact)));
+  };
+
+  const updatePhone = (
+    contactIndex: number,
+    phoneIndex: number,
+    patch: Partial<SendContactPhone>,
+  ) => {
+    saveContacts(
+      contacts.map((contact, i) =>
+        i === contactIndex
+          ? {
+              ...contact,
+              phones: (contact.phones ?? []).map((phone, j) =>
+                j === phoneIndex ? { ...phone, ...patch } : phone,
+              ),
+            }
+          : contact,
+      ),
+    );
+  };
+
+  const removeContact = (index: number) => {
+    const remaining = contacts.filter((_, i) => i !== index);
+    saveContacts(remaining.length ? remaining : [{ name: "", phones: [] }]);
+  };
+
+  return (
+    <>
+      <div className="flex flex-col gap-3">
+        {contacts.map((contact, contactIndex) => (
+          <section
+            key={contactIndex}
+            className="flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-3"
+          >
+            <div className="flex items-center gap-2">
+              <label className="sr-only" htmlFor={`contact-name-${currentKey}-${contactIndex}`}>
+                {contactIndex === 0 ? "Contact name" : `Additional contact ${contactIndex + 1} name`}
+              </label>
+              <Input
+                id={`contact-name-${currentKey}-${contactIndex}`}
+                value={contact.name ?? ""}
+                onChange={(event) => updateContactName(contactIndex, event.target.value)}
+                placeholder={contactIndex === 0 ? "Contact name" : `Additional contact ${contactIndex + 1} name`}
+                className="bg-muted"
+              />
+              {contacts.length > 1 && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => removeContact(contactIndex)}
+                  aria-label={`Remove contact ${contactIndex + 1}`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              {(contact.phones ?? []).map((phone, phoneIndex) => (
+                <div key={phoneIndex} className="grid grid-cols-1 gap-2 md:grid-cols-[2fr_1fr_auto]">
+                  <label className="sr-only" htmlFor={`contact-phone-${currentKey}-${contactIndex}-${phoneIndex}`}>
+                    Phone number {phoneIndex + 1} for contact {contactIndex + 1}
+                  </label>
+                  <Input
+                    id={`contact-phone-${currentKey}-${contactIndex}-${phoneIndex}`}
+                    value={phone.phone ?? ""}
+                    onChange={(event) => updatePhone(contactIndex, phoneIndex, { phone: event.target.value })}
+                    placeholder="Phone number"
+                    inputMode="tel"
+                    className="bg-muted"
+                  />
+                  <label className="sr-only" htmlFor={`contact-phone-type-${currentKey}-${contactIndex}-${phoneIndex}`}>
+                    Optional phone type
+                  </label>
+                  <Input
+                    id={`contact-phone-type-${currentKey}-${contactIndex}-${phoneIndex}`}
+                    value={phone.type ?? ""}
+                    onChange={(event) => updatePhone(contactIndex, phoneIndex, { type: event.target.value })}
+                    placeholder="Type (optional)"
+                    className="bg-muted"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      saveContacts(
+                        contacts.map((entry, i) =>
+                          i === contactIndex
+                            ? { ...entry, phones: (entry.phones ?? []).filter((_, j) => j !== phoneIndex) }
+                            : entry,
+                        ),
+                      );
+                    }}
+                    aria-label={`Remove phone ${phoneIndex + 1}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+              ))}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="self-start"
+                onClick={() =>
+                  saveContacts(
+                    contacts.map((entry, i) =>
+                      i === contactIndex
+                        ? { ...entry, phones: [...(entry.phones ?? []), { phone: "", type: "" }] }
+                        : entry,
+                    ),
+                  )
+                }
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add phone number
+              </Button>
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={() => saveContacts([...contacts, { name: "", phones: [{ phone: "", type: "" }] }])}
+      >
+        <Plus className="h-3.5 w-3.5" />
+        Add another contact
+      </Button>
+
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(value) => onUpdateConfig({ next_node_key: value })}
+        label="Advances to"
+      />
+    </>
+  );
 }
 
 // ============================================================

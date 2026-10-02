@@ -28,12 +28,14 @@ describe('groupNodeTypesByCategory', () => {
   it('preserves the input order within a category', () => {
     const groups = groupNodeTypesByCategory([
       'send_media',
+      'send_contact',
       'send_message',
       'send_buttons',
     ]);
     expect(groups).toHaveLength(1);
     expect(groups[0].types).toEqual([
       'send_media',
+      'send_contact',
       'send_message',
       'send_buttons',
     ]);

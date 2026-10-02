@@ -301,6 +301,121 @@ function validateNode(
       break;
     }
 
+    case "send_contact": {
+      const hasContactName = [node.config.contact_name, node.config.name].some(
+        (value) => typeof value === "string" && value.trim().length > 0,
+      );
+      if (!hasContactName) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "contact_name",
+          message: "Send-contact needs a contact name.",
+        });
+      }
+
+      const contacts = node.config.contacts;
+      if (!Array.isArray(contacts) || contacts.length === 0) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "contacts",
+          message: "Send-contact needs at least one contact.",
+        });
+      } else {
+        contacts.forEach((rawContact: unknown, contactIndex: number) => {
+          const field = `contacts.${contactIndex}`;
+          if (!rawContact || typeof rawContact !== "object" || Array.isArray(rawContact)) {
+            issues.push({
+              severity: "error",
+              scope: "node",
+              node_key: node.node_key,
+              field,
+              message: `Contact ${contactIndex + 1} must be an object with a name and phone list.`,
+            });
+            return;
+          }
+
+          const contact = rawContact as Record<string, unknown>;
+          if (typeof contact.name !== "string" || !contact.name.trim()) {
+            issues.push({
+              severity: "error",
+              scope: "node",
+              node_key: node.node_key,
+              field: `${field}.name`,
+              message: `Contact ${contactIndex + 1} needs a valid name.`,
+            });
+          }
+
+          if (!Array.isArray(contact.phones) || contact.phones.length === 0) {
+            issues.push({
+              severity: "error",
+              scope: "node",
+              node_key: node.node_key,
+              field: `${field}.phones`,
+              message: `Contact ${contactIndex + 1} needs at least one phone number.`,
+            });
+            return;
+          }
+
+          contact.phones.forEach((rawPhone: unknown, phoneIndex: number) => {
+            const phoneField = `${field}.phones.${phoneIndex}`;
+            if (!rawPhone || typeof rawPhone !== "object" || Array.isArray(rawPhone)) {
+              issues.push({
+                severity: "error",
+                scope: "node",
+                node_key: node.node_key,
+                field: phoneField,
+                message: `Phone ${phoneIndex + 1} for contact ${contactIndex + 1} must be an object.`,
+              });
+              return;
+            }
+            const phone = rawPhone as Record<string, unknown>;
+            if (typeof phone.phone !== "string" || !phone.phone.trim()) {
+              issues.push({
+                severity: "error",
+                scope: "node",
+                node_key: node.node_key,
+                field: `${phoneField}.phone`,
+                message: `Phone ${phoneIndex + 1} for contact ${contactIndex + 1} needs a non-empty phone number.`,
+              });
+            }
+            if (phone.type !== undefined && typeof phone.type !== "string") {
+              issues.push({
+                severity: "error",
+                scope: "node",
+                node_key: node.node_key,
+                field: `${phoneField}.type`,
+                message: `Phone type for contact ${contactIndex + 1} must be text when provided.`,
+              });
+            }
+          });
+        });
+      }
+
+      const cfg = node.config as { next_node_key?: string };
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: "Send-contact node must point to a next node.",
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: `Send-contact points to non-existent node "${cfg.next_node_key}".`,
+        });
+      }
+      break;
+    }
+
     case "send_buttons": {
       const cfg = node.config as {
         text?: string;
@@ -750,6 +865,7 @@ function outgoingEdges(node: NodeInput): string[] {
     case "start":
     case "send_message":
     case "send_media":
+    case "send_contact":
     case "collect_input":
     case "set_tag": {
       const cfg = node.config as { next_node_key?: string };

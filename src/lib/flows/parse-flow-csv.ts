@@ -7,9 +7,11 @@
  * - trigger_keywords (optional): Comma-separated trigger keywords (e.g. "hi,help,menu")
  * - initial_message (optional): Text greeting for the entry message
  * - button_options (optional): Semicolon-separated button titles (e.g. "Sales;Support;FAQ")
- * - template_slug (optional): Clones pre-built template graph ('welcome_menu', 'feedback_collector', 'lead_qualifier')
+ * - template_slug (optional): Clones an existing Flow template graph (e.g. 'welcome_menu', 'faq_bot', 'lead_capture')
  * - description (optional): Brief summary of what this flow does
  */
+
+import { getFlowTemplate } from "./templates";
 
 export interface ParsedFlowRow {
   name: string;
@@ -32,8 +34,9 @@ export interface ParseFlowCsvResult {
 export const VALID_FLOW_TRIGGERS = ["keyword", "first_inbound_message", "manual"] as const;
 
 export function parseFlowCsv(text: string): ParseFlowCsvResult {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const firstContentLine = lines.findIndex((line) => line.trim().length > 0);
+  if (firstContentLine === -1) {
     return {
       rows: [],
       hasNameColumn: false,
@@ -42,8 +45,17 @@ export function parseFlowCsv(text: string): ParseFlowCsvResult {
     };
   }
 
-  const headers = parseCsvLine(lines[0]).map((h) =>
-    h.trim().toLowerCase().replace(/["']/g, "")
+  const headerLine = lines[firstContentLine];
+  if (hasUnclosedQuotedField(headerLine)) {
+    return {
+      rows: [],
+      hasNameColumn: false,
+      hasTriggerTypeColumn: false,
+      errors: [{ line: firstContentLine + 1, message: "Unterminated quoted field; physical newlines inside CSV records are not supported." }],
+    };
+  }
+  const headers = parseCsvLine(headerLine).map((header) =>
+    header.trim().toLowerCase().replace(/["']/g, "")
   );
 
   const nameIdx = headers.indexOf("name");
@@ -53,7 +65,6 @@ export function parseFlowCsv(text: string): ParseFlowCsvResult {
   const buttonOptionsIdx = headers.indexOf("button_options");
   const templateSlugIdx = headers.indexOf("template_slug");
   const descriptionIdx = headers.indexOf("description");
-
   const hasNameColumn = nameIdx !== -1;
   const hasTriggerTypeColumn = triggerTypeIdx !== -1;
 
@@ -62,55 +73,87 @@ export function parseFlowCsv(text: string): ParseFlowCsvResult {
       rows: [],
       hasNameColumn,
       hasTriggerTypeColumn,
-      errors: [
-        {
-          line: 1,
-          message: `Missing required columns: ${[!hasNameColumn && "'name'", !hasTriggerTypeColumn && "'trigger_type'"].filter(Boolean).join(", ")}`,
-        },
-      ],
+      errors: [{
+        line: firstContentLine + 1,
+        message: `Missing required columns: ${[!hasNameColumn && "'name'", !hasTriggerTypeColumn && "'trigger_type'"].filter(Boolean).join(", ")}`,
+      }],
     };
   }
 
   const rows: ParsedFlowRow[] = [];
   const errors: Array<{ line: number; message: string }> = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    const rawLine = lines[i].trim();
-    if (!rawLine) continue;
+  for (let i = firstContentLine + 1; i < lines.length; i++) {
+    const rawLine = lines[i];
+    if (!rawLine.trim()) continue;
+
+    if (hasUnclosedQuotedField(rawLine)) {
+      const startLine = i + 1;
+      let quoteOpen = true;
+      while (i + 1 < lines.length && quoteOpen) {
+        i++;
+        quoteOpen = quoteStateAfterLine(lines[i], quoteOpen);
+      }
+      errors.push({
+        line: startLine,
+        message: "Physical newlines inside quoted CSV records are not supported.",
+      });
+      continue;
+    }
 
     const values = parseCsvLine(rawLine);
-    const name = values[nameIdx]?.replace(/^["']|["']$/g, "").trim();
-    const rawTrigger = values[triggerTypeIdx]?.replace(/^["']|["']$/g, "").trim().toLowerCase();
+    const name = values[nameIdx]?.trim();
+    const rawTrigger = values[triggerTypeIdx]?.trim().toLowerCase();
 
     if (!name) {
       errors.push({ line: i + 1, message: "Flow name is empty." });
       continue;
     }
-
     if (!rawTrigger || !VALID_FLOW_TRIGGERS.includes(rawTrigger as typeof VALID_FLOW_TRIGGERS[number])) {
-      errors.push({
-        line: i + 1,
-        message: `Invalid trigger_type "${rawTrigger}". Allowed: ${VALID_FLOW_TRIGGERS.join(", ")}`,
-      });
+      errors.push({ line: i + 1, message: `Invalid trigger_type "${rawTrigger}". Allowed: ${VALID_FLOW_TRIGGERS.join(", ")}` });
       continue;
     }
 
     const trigger_type = rawTrigger as typeof VALID_FLOW_TRIGGERS[number];
-
-    const rawKeywords = triggerKeywordsIdx >= 0 ? values[triggerKeywordsIdx]?.replace(/^["']|["']$/g, "").trim() : "";
+    const rawKeywords = values[triggerKeywordsIdx]?.trim() ?? "";
     const trigger_keywords = rawKeywords
-      ? rawKeywords.split(",").map((k) => k.trim()).filter(Boolean)
+      ? rawKeywords.split(",").map((keyword) => keyword.trim())
       : undefined;
-
-    const initial_message = initialMessageIdx >= 0 ? values[initialMessageIdx]?.replace(/^["']|["']$/g, "").trim() : undefined;
-
-    const rawButtons = buttonOptionsIdx >= 0 ? values[buttonOptionsIdx]?.replace(/^["']|["']$/g, "").trim() : "";
+    if (trigger_keywords?.some((keyword) => !keyword)) {
+      errors.push({ line: i + 1, message: "trigger_keywords cannot contain empty entries." });
+      continue;
+    }
+    const rawInitialMessage = values[initialMessageIdx];
+    const initial_message = rawInitialMessage !== undefined && rawInitialMessage.length > 0
+      ? rawInitialMessage
+      : undefined;
+    const rawButtons = values[buttonOptionsIdx]?.trim() ?? "";
     const button_options = rawButtons
-      ? rawButtons.split(";").map((b) => b.trim()).filter(Boolean).slice(0, 3)
+      ? rawButtons.split(";").map((button) => button.trim())
       : undefined;
+    if (button_options?.some((button) => !button)) {
+      errors.push({ line: i + 1, message: "button_options cannot contain empty labels." });
+      continue;
+    }
+    const template_slug = values[templateSlugIdx]?.trim() || undefined;
+    const description = values[descriptionIdx]?.trim() || undefined;
 
-    const template_slug = templateSlugIdx >= 0 ? values[templateSlugIdx]?.replace(/^["']|["']$/g, "").trim() : undefined;
-    const description = descriptionIdx >= 0 ? values[descriptionIdx]?.replace(/^["']|["']$/g, "").trim() : undefined;
+    if (template_slug && !getFlowTemplate(template_slug)) {
+      errors.push({ line: i + 1, message: `Unknown template_slug "${template_slug}".` });
+      continue;
+    }
+    if (trigger_keywords && trigger_type !== "keyword") {
+      errors.push({ line: i + 1, message: "trigger_keywords can only be used with keyword triggers." });
+      continue;
+    }
+    if (button_options && button_options.length > 3) {
+      errors.push({ line: i + 1, message: "button_options may contain at most 3 labels." });
+      continue;
+    }
+    if (button_options?.some((button) => button.length > 20)) {
+      errors.push({ line: i + 1, message: "Button labels must be no longer than 20 characters." });
+      continue;
+    }
 
     rows.push({
       name,
@@ -124,15 +167,27 @@ export function parseFlowCsv(text: string): ParseFlowCsvResult {
     });
   }
 
-  return {
-    rows,
-    hasNameColumn: true,
-    hasTriggerTypeColumn: true,
-    errors,
-  };
+  return { rows, hasNameColumn: true, hasTriggerTypeColumn: true, errors };
 }
 
-/** Parses CSV line with quotation safety */
+function hasUnclosedQuotedField(line: string): boolean {
+  return quoteStateAfterLine(line, false);
+}
+
+function quoteStateAfterLine(line: string, initialState: boolean): boolean {
+  let inQuotes = initialState;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== '"') continue;
+    if (inQuotes && line[i + 1] === '"') {
+      i++;
+    } else {
+      inQuotes = !inQuotes;
+    }
+  }
+  return inQuotes;
+}
+
+/** Parses one physical CSV line and retains field contents verbatim. */
 export function parseCsvLine(line: string): string[] {
   const values: string[] = [];
   let current = "";
@@ -148,13 +203,13 @@ export function parseCsvLine(line: string): string[] {
         inQuotes = !inQuotes;
       }
     } else if (char === "," && !inQuotes) {
-      values.push(current.trim());
+      values.push(current);
       current = "";
     } else {
       current += char;
     }
   }
-  values.push(current.trim());
+  values.push(current);
   return values;
 }
 
@@ -162,8 +217,8 @@ export function parseCsvLine(line: string): string[] {
 export function getFlowSampleCsv(): string {
   return `name,trigger_type,trigger_keywords,initial_message,button_options,template_slug,description
 "Welcome Menu & Routing",keyword,"hi,hello,menu,start","Welcome to our WhatsApp service! How can we assist you today?","Talk to Sales;Support Help;Book Demo",welcome_menu,"Multi-branch interactive greeting menu"
-"Customer Feedback Bot",keyword,"feedback,review,rate","Thank you for your recent purchase! How was your experience with us?","5 Stars Excellent;3 Stars Good;1 Star Needs Work",feedback_collector,"Automated post-service survey flow"
-"Lead Qualification Flow",keyword,"quote,pricing,buy","Hi there! To prepare a tailored quote, what best describes your needs?","Small Business;Mid-Market;Enterprise",lead_qualifier,"Qualifies inbound leads and gathers requirements"
+"Customer Feedback Bot",keyword,"feedback,review,rate","Thank you for your recent purchase! How was your experience with us?",,faq_bot,"Automated post-service survey flow"
+"Lead Qualification Flow",keyword,"quote,pricing,buy","Hi there! To prepare a tailored quote, what best describes your needs?",,lead_capture,"Qualifies inbound leads and gathers requirements"
 "First Contact Onboarding",first_inbound_message,"","Hello! Welcome to our channel. Choose an option to get started:","Explore Catalog;Track Order;Chat with Agent",,"Greets brand new incoming phone numbers with interactive buttons"
 "VIP Agent Handoff Flow",manual,"","Connecting you directly with a dedicated VIP representative...",,,"Manual trigger flow used by agents inside inbox"`;
 }
