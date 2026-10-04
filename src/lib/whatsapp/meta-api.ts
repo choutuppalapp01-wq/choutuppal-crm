@@ -280,6 +280,11 @@ export async function sendTextMessage(
 
 export interface WhatsAppContact {
   name: string
+  org?: {
+    company?: string
+    department?: string
+    title?: string
+  }
   phones: Array<{
     phone: string
     type?: string
@@ -302,6 +307,15 @@ export function buildContactMessagePayload({
     type: 'contacts',
     contacts: contacts.map((contact) => ({
       name: { formatted_name: contact.name },
+      ...(contact.org?.company || contact.org?.department || contact.org?.title
+        ? {
+            org: {
+              ...(contact.org.company ? { company: contact.org.company } : {}),
+              ...(contact.org.department ? { department: contact.org.department } : {}),
+              ...(contact.org.title ? { title: contact.org.title } : {}),
+            },
+          }
+        : {}),
       phones: contact.phones.map(({ phone, type }) => ({
         phone,
         ...(type?.trim() ? { type: type.trim() } : {}),

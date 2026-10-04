@@ -141,12 +141,13 @@ describe("Flow Templates Foundation (Batch 02)", () => {
           ];
         });
 
-      expect(base!.nodes).toHaveLength(3);
-      expect(customized!.nodes).toHaveLength(5);
+      expect(base!.nodes).toHaveLength(4);
+      expect(customized!.nodes).toHaveLength(6);
       expect(customized!.nodes.length - base!.nodes.length).toBe(2);
       expect([...resultNodes.keys()]).toEqual(expect.arrayContaining([...baseNodes.keys()]));
       expect(edges(customized!.nodes)).toEqual([
-        ["start", "welcome"],
+        ["start", "contact_card"],
+        ["contact_card", "welcome"],
         ["welcome", "handoff_1"],
         ["welcome", "csv_override_handoff_2"],
         ["welcome", "csv_override_handoff_3"],

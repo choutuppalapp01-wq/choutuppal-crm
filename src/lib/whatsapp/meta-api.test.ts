@@ -63,6 +63,41 @@ describe("WhatsApp contacts message payload", () => {
     });
   });
 
+  it("maps organization and multiple phones to Meta's contacts payload", () => {
+    expect(
+      buildContactMessagePayload({
+        to: "15551234567",
+        contacts: [
+          {
+            name: "Choutuppal App",
+            org: {
+              company: "Choutuppal Digital Services",
+            },
+            phones: [
+              { phone: "+919441348175", type: "Help Line" },
+              { phone: "+919494348175", type: "Bot Services" },
+            ],
+          },
+        ],
+      }),
+    ).toEqual({
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: "15551234567",
+      type: "contacts",
+      contacts: [
+        {
+          name: { formatted_name: "Choutuppal App" },
+          org: { company: "Choutuppal Digital Services" },
+          phones: [
+            { phone: "+919441348175", type: "Help Line" },
+            { phone: "+919494348175", type: "Bot Services" },
+          ],
+        },
+      ],
+    });
+  });
+
   it("sends the contacts payload with the existing Cloud API client", async () => {
     let capturedBody: unknown;
     vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {

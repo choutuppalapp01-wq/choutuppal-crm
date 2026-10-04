@@ -99,18 +99,35 @@ const WELCOME_MENU: FlowTemplate = {
     {
       node_key: "start",
       node_type: "start",
-      config: { next_node_key: "welcome" },
+      config: { next_node_key: "contact_card" },
+    },
+    {
+      node_key: "contact_card",
+      node_type: "send_contact",
+      config: {
+        name: "Choutuppal App",
+        contact_name: "Choutuppal App",
+        contacts: [
+          {
+            name: "Choutuppal App",
+            org: {
+              company: "Choutuppal Digital Services",
+            },
+            phones: [
+              { phone: "+919441348175", type: "Help Line" },
+              { phone: "+919494348175", type: "Bot Services" },
+            ],
+          },
+        ],
+        next_node_key: "welcome",
+      } as SendContactNodeConfig,
     },
     {
       node_key: "welcome",
       node_type: "send_buttons",
       config: {
-        text: "నమస్కారం! 🙏\nచౌటుప్పల్ యాప్‌కి స్వాగతం.\nమన చౌటుప్పల్ స్థానిక సమాచారం, ప్రభుత్వ సేవలు మరియు వ్యాపార వివరాలను WhatsAppలోనే సులభంగా పొందవచ్చు.\n\n📇 ముందుగా మా నంబర్లను 'Choutuppal App' పేరుతో సేవ్ చేసుకోండి:\n📱 9441348175 (హెల్ప్‌లైన్)\n🤖 9494348175 (బాట్ సేవలు)\n📥 Contact Card: https://choutuppal.in/assets/Choutuppal_App.vcf\n\nముందుకు వెళ్లడానికి క్రింది బటన్ నొక్కండి:",
+        text: "నమస్కారం! 🙏\nచౌటుప్పల్ యాప్‌కి స్వాగతం.\nమన చౌటుప్పల్ స్థానిక సమాచారం, ప్రభుత్వ సేవలు మరియు వ్యాపార వివరాలను WhatsAppలోనే సులభంగా పొందవచ్చు.\n\n📇 పైన పంపిన Contact Card ద్వారా మా నంబర్లను సులభంగా సేవ్ చేసుకోండి:\n📱 9441348175 (హెల్ప్‌లైన్)\n🤖 9494348175 (బాట్ సేవలు)\n\nముందుకు వెళ్లడానికి క్రింది బటన్ నొక్కండి:",
         footer_text: "🌐 https://choutuppal.in",
-        media_type: "contact",
-        media_url: "https://choutuppal.in/assets/Choutuppal_App.vcf",
-        contact_name: "Choutuppal App",
-        contact_phones: ["+919441348175", "+919494348175"],
         buttons: [
           {
             reply_id: "btn_start",
@@ -118,7 +135,7 @@ const WELCOME_MENU: FlowTemplate = {
             next_node_key: "handoff_1",
           },
         ],
-      } as SendButtonsNodeConfig & Record<string, unknown>,
+      } as SendButtonsNodeConfig,
     },
     {
       node_key: "handoff_1",
@@ -1164,10 +1181,21 @@ export function buildTemplateWithOverrides(
   }
 
   const startNode = cloned.nodes.find((node) => node.node_type === "start");
-  const entryNodeKey =
+  let entryNodeKey =
     (startNode?.config as { next_node_key?: string })?.next_node_key ??
     cloned.entry_node_id;
-  const entryNode = cloned.nodes.find((node) => node.node_key === entryNodeKey);
+  let entryNode = cloned.nodes.find((node) => node.node_key === entryNodeKey);
+
+  // If the direct target from start is a passthrough/auto-advance node (e.g. send_contact),
+  // walk forward to find the interactive/message node for initial_message and button_options overrides.
+  if (entryNode && (entryNode.node_type === "send_contact" || entryNode.node_type === "send_media")) {
+    const nextKey = (entryNode.config as { next_node_key?: string })?.next_node_key;
+    const nextNode = cloned.nodes.find((node) => node.node_key === nextKey);
+    if (nextNode) {
+      entryNodeKey = nextKey!;
+      entryNode = nextNode;
+    }
+  }
 
   if (overrides.initial_message !== undefined) {
     if (!entryNode) throw new Error("The template entry message node could not be found.");

@@ -103,6 +103,11 @@ export interface SendContactNodeConfig {
   name?: string;
   contacts: Array<{
     name: string;
+    org?: {
+      company?: string;
+      department?: string;
+      title?: string;
+    };
     phones: Array<{
       phone: string;
       type?: string;
