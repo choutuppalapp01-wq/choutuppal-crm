@@ -17,6 +17,12 @@ import {
   UserPlus,
   FileText,
   Upload,
+  Compass,
+  Store,
+  Sparkles,
+  Megaphone,
+  Building2,
+  Briefcase,
 } from "lucide-react";
 
 import { useTranslations } from "next-intl";
@@ -73,7 +79,16 @@ interface TemplateSummary {
   slug: string;
   name: string;
   description: string;
-  icon: "MessageSquare" | "HelpCircle" | "UserPlus";
+  icon:
+    | "MessageSquare"
+    | "HelpCircle"
+    | "UserPlus"
+    | "Compass"
+    | "Store"
+    | "Sparkles"
+    | "Megaphone"
+    | "Building2"
+    | "Briefcase";
   trigger_type: string;
   node_count: number;
 }
@@ -82,6 +97,12 @@ const TEMPLATE_ICONS = {
   MessageSquare,
   HelpCircle,
   UserPlus,
+  Compass,
+  Store,
+  Sparkles,
+  Megaphone,
+  Building2,
+  Briefcase,
 } as const;
 
 export default function FlowsPage() {

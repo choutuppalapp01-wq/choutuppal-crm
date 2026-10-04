@@ -496,4 +496,98 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
     expect(result.flow_run_id).toBe("run-1");
     expect(startedRuns()).toHaveLength(1);
   });
+
+  it("routes inbound message with valid website context to targeted active flow", async () => {
+    process.env.FEATURE_WEBSITE_CONTEXT = "true";
+    const REAL_ESTATE_FLOW = {
+      ...KEYWORD_FLOW,
+      id: "flow-real-estate",
+      name: "Choutuppal Real Estate Inquiries",
+      description: "real_estate flow template",
+      trigger_type: "keyword",
+      trigger_config: { keywords: ["plots", "villas"] },
+    };
+    h.state.flows = [KEYWORD_FLOW, REAL_ESTATE_FLOW];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: {
+        kind: "text",
+        text: "Hi, I am interested in this property\n\n[CTX source=website service=real_estate intent=property_enquiry property_id=prop-123]",
+        meta_message_id: "m-web-1",
+      },
+      isFirstInboundMessage: false,
+    });
+
+    delete process.env.FEATURE_WEBSITE_CONTEXT;
+    expect(result.consumed).toBe(true);
+    expect(result.flow_run_id).toBe("run-1");
+    // Verifies it started the real estate flow and stored website_context
+    expect(startedRuns().map((i) => i.row)).toEqual([
+      expect.objectContaining({
+        flow_id: "flow-real-estate",
+        vars: expect.objectContaining({
+          website_context: expect.objectContaining({
+            source: "website",
+            service: "real_estate",
+            property_id: "prop-123",
+          }),
+        }),
+      }),
+    ]);
+  });
+
+  it("does not hijack an active flow when inbound message contains website context", async () => {
+    process.env.FEATURE_WEBSITE_CONTEXT = "true";
+    // Setup an existing active run for this contact
+    h.state.activeRuns = [
+      {
+        id: "active-run-99",
+        flow_id: "flow-1",
+        account_id: "acct-1",
+        contact_id: "ct-1",
+        conversation_id: "cv-1",
+        status: "active",
+        current_node_key: "prompt",
+        vars: {},
+        reprompt_count: 0,
+      },
+    ];
+    h.state.nodes = [
+      {
+        id: "prompt-node",
+        flow_id: "flow-1",
+        node_key: "prompt",
+        node_type: "collect_input",
+        config: {
+          prompt_text: "What is your name?",
+          var_key: "name",
+          next_node_key: "done",
+        },
+      },
+      NODES[2],
+    ];
+
+    const result = await dispatchInboundToFlows({
+      accountId: "acct-1",
+      userId: "u-1",
+      contactId: "ct-1",
+      conversationId: "cv-1",
+      message: {
+        kind: "text",
+        text: "My name is Ram [CTX source=website service=real_estate]",
+        meta_message_id: "m-active-1",
+      },
+      isFirstInboundMessage: false,
+    });
+
+    delete process.env.FEATURE_WEBSITE_CONTEXT;
+    expect(result.consumed).toBe(true);
+    // Active run was advanced, NOT restarted or hijacked into real estate flow
+    expect(result.flow_run_id).toBe("active-run-99");
+    expect(startedRuns()).toHaveLength(0);
+  });
 });

@@ -5,8 +5,8 @@
  * - name (required): Name of the automation
  * - trigger_type (required): 'new_message_received' | 'first_inbound_message' | 'keyword_match' | 'interactive_reply' | 'new_contact_created' | 'conversation_assigned' | 'tag_added' | 'time_based'
  * - trigger_value (optional): keyword(s) for keyword_match, tag name or id for tag_added, reply_ids for interactive_reply, schedule/time for time_based
- * - action_type (optional): first step action e.g. 'send_message', 'add_tag', 'close_conversation', 'wait'
- * - action_value (optional): message text, tag name, wait duration (e.g. "10m", "1h", "2d")
+ * - action_type (optional): first step action — restricted to 'send_message' and 'add_tag' for safe CSV import
+ * - action_value (optional): message text, clean tag identifier
  * - is_active (optional): 'true' | 'false' (defaults to false for draft safety)
  * - description (optional): Brief summary
  * - template_slug (optional): pre-built template to populate full steps ('welcome_message', 'out_of_office', 'lead_qualifier', 'follow_up_reminder')
@@ -44,25 +44,23 @@ export const VALID_AUTOMATION_TRIGGERS: AutomationTriggerType[] = [
   "time_based",
 ];
 
-export const VALID_AUTOMATION_ACTIONS: AutomationStepType[] = [
+export const ALLOWED_AUTOMATION_IMPORT_ACTIONS = [
   "send_message",
-  "send_buttons",
-  "send_list",
-  "send_template",
   "add_tag",
-  "remove_tag",
-  "assign_conversation",
-  "update_contact_field",
-  "create_deal",
-  "wait",
-  "condition",
-  "send_webhook",
-  "close_conversation",
-];
+] as const;
+
+export type AllowedAutomationImportAction =
+  (typeof ALLOWED_AUTOMATION_IMPORT_ACTIONS)[number];
+
+export const VALID_AUTOMATION_ACTIONS: readonly AutomationStepType[] =
+  ALLOWED_AUTOMATION_IMPORT_ACTIONS;
+
+export const VALID_TAG_IDENTIFIER_REGEX = /^[A-Za-z0-9_]+$/;
 
 export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
-  const lines = text.trim().split(/\r?\n/);
-  if (lines.length < 2) {
+  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/);
+  const firstContentLine = lines.findIndex((line) => line.trim().length > 0);
+  if (firstContentLine === -1 || lines.length < 2) {
     return {
       rows: [],
       hasNameColumn: false,
@@ -71,7 +69,23 @@ export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
     };
   }
 
-  const headers = parseCsvLine(lines[0]).map((h) =>
+  const headerLine = lines[firstContentLine];
+  if (hasUnclosedQuotedField(headerLine)) {
+    return {
+      rows: [],
+      hasNameColumn: false,
+      hasTriggerTypeColumn: false,
+      errors: [
+        {
+          line: firstContentLine + 1,
+          message:
+            "Unterminated quoted field; physical newlines inside CSV records are not supported.",
+        },
+      ],
+    };
+  }
+
+  const headers = parseCsvLine(headerLine).map((h) =>
     h.trim().toLowerCase().replace(/["']/g, "")
   );
 
@@ -94,7 +108,7 @@ export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
       hasTriggerTypeColumn,
       errors: [
         {
-          line: 1,
+          line: firstContentLine + 1,
           message: `Missing required columns: ${[!hasNameColumn && "'name'", !hasTriggerTypeColumn && "'trigger_type'"].filter(Boolean).join(", ")}`,
         },
       ],
@@ -104,9 +118,18 @@ export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
   const rows: ParsedAutomationRow[] = [];
   const errors: Array<{ line: number; message: string }> = [];
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = firstContentLine + 1; i < lines.length; i++) {
     const rawLine = lines[i].trim();
     if (!rawLine) continue;
+
+    if (hasUnclosedQuotedField(rawLine)) {
+      errors.push({
+        line: i + 1,
+        message:
+          "Unterminated quoted field; physical newlines inside CSV records are not supported.",
+      });
+      continue;
+    }
 
     const values = parseCsvLine(rawLine);
     const name = values[nameIdx]?.replace(/^["']|["']$/g, "").trim();
@@ -133,15 +156,36 @@ export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
     const description = descriptionIdx >= 0 ? values[descriptionIdx]?.replace(/^["']|["']$/g, "").trim() : undefined;
     const template_slug = templateSlugIdx >= 0 ? values[templateSlugIdx]?.replace(/^["']|["']$/g, "").trim() : undefined;
 
-    let action_type: AutomationStepType | undefined = undefined;
-    if (rawAction) {
-      if (VALID_AUTOMATION_ACTIONS.includes(rawAction as AutomationStepType)) {
-        action_type = rawAction as AutomationStepType;
-      } else {
+    // Validate tag trigger if trigger_type === 'tag_added'
+    if (trigger_type === "tag_added" && trigger_value) {
+      if (!VALID_TAG_IDENTIFIER_REGEX.test(trigger_value)) {
         errors.push({
           line: i + 1,
-          message: `Unknown action_type "${rawAction}". Defaulting to empty step.`,
+          message: `Invalid trigger tag identifier "${trigger_value}". Tags must match /^[A-Za-z0-9_]+$/ without spaces or special characters.`,
         });
+        continue;
+      }
+    }
+
+    let action_type: AutomationStepType | undefined = undefined;
+    if (rawAction) {
+      if (!ALLOWED_AUTOMATION_IMPORT_ACTIONS.includes(rawAction as AllowedAutomationImportAction)) {
+        errors.push({
+          line: i + 1,
+          message: `Unsupported action_type "${rawAction}". Allowed actions for CSV import are: ${ALLOWED_AUTOMATION_IMPORT_ACTIONS.join(", ")}.`,
+        });
+        continue;
+      }
+      action_type = rawAction as AutomationStepType;
+
+      if (action_type === "add_tag") {
+        if (!action_value || !VALID_TAG_IDENTIFIER_REGEX.test(action_value)) {
+          errors.push({
+            line: i + 1,
+            message: `Invalid tag identifier "${action_value ?? ""}". Tags must match /^[A-Za-z0-9_]+$/ without spaces or special characters.`,
+          });
+          continue;
+        }
       }
     }
 
@@ -164,6 +208,23 @@ export function parseAutomationCsv(text: string): ParseAutomationCsvResult {
     hasTriggerTypeColumn: true,
     errors,
   };
+}
+
+function hasUnclosedQuotedField(line: string): boolean {
+  return quoteStateAfterLine(line, false);
+}
+
+function quoteStateAfterLine(line: string, initialState: boolean): boolean {
+  let inQuotes = initialState;
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] !== '"') continue;
+    if (inQuotes && line[i + 1] === '"') {
+      i++;
+    } else {
+      inQuotes = !inQuotes;
+    }
+  }
+  return inQuotes;
 }
 
 /** Parses CSV line taking quotation marks and commas into account */
@@ -197,9 +258,6 @@ export function getAutomationSampleCsv(): string {
   return `name,trigger_type,trigger_value,action_type,action_value,is_active,description,template_slug
 "Instant Welcome Reply",first_inbound_message,"",send_message,"Hello! Thanks for reaching out to us on WhatsApp. How can we help you today?",false,"Auto-reply to first-time WhatsApp inquiries",welcome_message
 "Pricing Inquiry Auto-Reply",keyword_match,"pricing,quote,cost",send_message,"Here is our pricing: Starter $29/mo, Pro $79/mo. Would you like a demo?",false,"Answers pricing keywords instantly",
-"VIP Lead Tagging",keyword_match,"enterprise,vip,contract",add_tag,"VIP Lead",false,"Tag hot leads when mentioned in conversation",
-"After Hours Auto-Responder",time_based,"18:00-09:00",send_message,"Our office is currently closed (hours 9am-6pm). We will respond first thing tomorrow morning!",false,"Out of office auto response",out_of_office
-"Support Handoff",interactive_reply,"support_agent,talk_human",assign_conversation,"round_robin",false,"Assigns chat to agent when customer taps Support button",
-"Order Status Lookup",keyword_match,"order,track,tracking",send_message,"Please provide your 6-digit Order ID and we will check it for you.",false,"Help customers check their order",
-"Wrap up & Close",keyword_match,"bye,done,thank you",close_conversation,"",false,"Closes conversation after resolved inquiry",`;
+"VIP Lead Tagging",keyword_match,"enterprise,vip,contract",add_tag,"VIP_Lead",false,"Tag hot leads when mentioned in conversation",
+"After Hours Auto-Responder",time_based,"18:00-09:00",send_message,"Our office is currently closed (hours 9am-6pm). We will respond first thing tomorrow morning!",false,"Out of office auto response",out_of_office`;
 }

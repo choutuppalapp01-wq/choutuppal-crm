@@ -15,6 +15,7 @@ import {
   handleTemplateWebhookChange,
   isTemplateWebhookField,
 } from '@/lib/whatsapp/template-webhook'
+import { parseWebsiteContext } from '@/lib/directory/website-context'
 
 // The `after()` callback in POST runs within this route's max duration.
 // Inbound processing can fan out to per-media Meta verification calls, so
@@ -788,27 +789,32 @@ async function processMessage(
   // no active flows take the runner's early-exit "no_match" path
   // basically for free (one indexed SELECT for the active run).
   // ============================================================
-  const flowResult = await dispatchInboundToFlows({
-    accountId,
-    userId: configOwnerUserId,
-    contactId: contactRecord.id,
-    conversationId: conversation.id,
-    message:
-      interactiveReplyId
-        ? {
-            kind: 'interactive_reply',
-            reply_id: interactiveReplyId,
-            reply_title: contentText ?? '',
-            meta_message_id: message.id,
-          }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
-    isFirstInboundMessage,
-  })
-  const flowConsumed = flowResult.consumed
+    const rawInboundText = contentText ?? message.text?.body ?? ''
+    const parsedWebsiteCtx = !interactiveReplyId && rawInboundText ? parseWebsiteContext(rawInboundText) : null
+
+    const flowResult = await dispatchInboundToFlows({
+      accountId,
+      userId: configOwnerUserId,
+      contactId: contactRecord.id,
+      conversationId: conversation.id,
+      message:
+        interactiveReplyId
+          ? {
+              kind: 'interactive_reply',
+              reply_id: interactiveReplyId,
+              reply_title: contentText ?? '',
+              meta_message_id: message.id,
+            }
+          : {
+              kind: 'text',
+              text: rawInboundText,
+              meta_message_id: message.id,
+            },
+      isFirstInboundMessage,
+      websiteContext: parsedWebsiteCtx ? (parsedWebsiteCtx.context as unknown as Record<string, unknown>) : null,
+      senderPhone,
+    })
+    const flowConsumed = flowResult.consumed
 
   // Fire any automations that react to this webhook event. All dispatches
   // run here (not earlier) so the contact, conversation, and inbound
@@ -823,8 +829,9 @@ async function processMessage(
     | 'keyword_match'
     | 'interactive_reply'
   )[] = []
-  // Content-level triggers are suppressed when a flow consumed the
-  // message — see the comment block above.
+  // Content-level triggers and relationship-level greeting triggers are
+  // suppressed when an active flow consumed the message. When a Flow owns
+  // the interaction, suppressing greeting automations prevents duplicate welcomes.
   if (!flowConsumed) {
     automationTriggers.push('new_message_received', 'keyword_match')
     // Interactive tap → fire the interactive_reply trigger too (only
@@ -834,15 +841,13 @@ async function processMessage(
     if (interactiveReplyId) {
       automationTriggers.push('interactive_reply')
     }
+    // new_contact_created fires only when the webhook just auto-created the
+    // contact row. first_inbound_message fires whenever this is the contact's
+    // first-ever customer-sent message. Both are suppressed if a Flow consumed
+    // the interaction.
+    if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
+    if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
   }
-  // new_contact_created fires only when the webhook just auto-created the
-  // contact row. first_inbound_message fires whenever this is the contact's
-  // first-ever customer-sent message — a superset that also catches
-  // manually-imported contacts sending for the first time. We dispatch both
-  // so users can pick whichever semantic they want; an automation that
-  // listens to only one trigger runs only when that trigger matches.
-  if (contactOutcome.wasCreated) automationTriggers.unshift('new_contact_created')
-  if (isFirstInboundMessage) automationTriggers.unshift('first_inbound_message')
   // Awaited — not fire-and-forget. We're inside the route's `after()`
   // block, which only keeps the function alive for promises it can see, so
   // a detached dispatch can be frozen part-way through: the log row is

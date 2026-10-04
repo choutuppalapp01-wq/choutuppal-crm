@@ -537,4 +537,80 @@ describe('inbound webhook: after() awaits automations (#368)', () => {
     // here — the callback would have resolved before the timers fired.
     expect(h.state.automationCompleted).toBe(3)
   })
+
+  it('suppresses first_inbound_message and greeting automations when an active flow consumed the message', async () => {
+    h.dispatchInboundToFlows.mockResolvedValue({ consumed: true })
+
+    await runWebhook()
+
+    expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
+    expect(h.state.automationStarted).toBe(0)
+  })
+})
+
+describe('inbound webhook: website context routing', () => {
+  it('parses website context and passes it to dispatchInboundToFlows', async () => {
+    const webMsg = {
+      id: 'wamid.WEB1',
+      from: '15551230000',
+      timestamp: '1700000000',
+      type: 'text',
+      text: {
+        body: 'Interested in property [CTX source=website service=real_estate intent=property_enquiry property_id=prop-456]',
+      },
+    }
+
+    await runWebhook(webMsg)
+
+    expect(h.dispatchInboundToFlows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        websiteContext: expect.objectContaining({
+          source: 'website',
+          service: 'real_estate',
+          intent: 'property_enquiry',
+          property_id: 'prop-456',
+        }),
+      }),
+    )
+  })
+
+  it('preserves duplicate greeting protection when website context flow consumes message', async () => {
+    h.dispatchInboundToFlows.mockResolvedValue({ consumed: true })
+    const webMsg = {
+      id: 'wamid.WEB2',
+      from: '15551230000',
+      timestamp: '1700000000',
+      type: 'text',
+      text: {
+        body: 'Hello [CTX source=website service=premium_listing listing_id=biz-1]',
+      },
+    }
+
+    await runWebhook(webMsg)
+
+    expect(h.runAutomationsForTrigger).not.toHaveBeenCalled()
+    expect(h.dispatchInboundToAiReply).not.toHaveBeenCalled()
+  })
+
+  it('does not pass invalid / malicious context to dispatchInboundToFlows', async () => {
+    const maliciousMsg = {
+      id: 'wamid.MAL1',
+      from: '15551230000',
+      timestamp: '1700000000',
+      type: 'text',
+      text: {
+        body: 'Inquiry [CTX source=hacker_site evil=true]',
+      },
+    }
+
+    await runWebhook(maliciousMsg)
+
+    expect(h.dispatchInboundToFlows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: 'acc-1',
+        websiteContext: null,
+      }),
+    )
+  })
 })

@@ -44,6 +44,16 @@ import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { addContactTagAndDispatch } from "@/lib/contacts/tag-events";
 import { removeContactTag } from "@/lib/contacts/tag-write";
 import {
+  parseWebsiteContext,
+  resolveTargetFlowSlug,
+  type WebsiteContext,
+} from "@/lib/directory/website-context";
+import {
+  identifyVendorByPhone,
+  type VendorIdentificationResult,
+} from "@/lib/directory/vendor-service";
+import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/flags";
+import {
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
@@ -340,17 +350,9 @@ async function findEntryFlow(
   accountId: string,
   message: ParsedInbound,
   isFirstInbound: boolean,
+  websiteContext?: WebsiteContext | null,
+  vendorInfo?: VendorIdentificationResult | null,
 ): Promise<FlowRow | null> {
-  // A tap used to be rejected outright here, on the reasoning that
-  // interactive replies are responses to existing prompts. That holds
-  // only while a prompt is outstanding — and this function runs solely
-  // when the contact has NO active run, so there is nothing the tap
-  // could be answering. What it actually blocked was issue #490: an
-  // *automation* sends the buttons, the customer taps one, and the flow
-  // whose keyword matches that button never starts. Retyping the label
-  // by hand worked, which is the tell — same words, different envelope.
-  const candidates = entryTriggerTexts(message);
-
   // Pull all active flows for this account. Active set is bounded
   // (the builder discourages double-trigger overlap; partial index
   // makes the lookup index-supported).
@@ -363,6 +365,65 @@ async function findEntryFlow(
   if (error || !flows) return null;
 
   const typed = flows as FlowRow[];
+
+  // 1. If valid website context is present and feature flag enabled, attempt contextual match first
+  if (websiteContext && isFeatureEnabled(FEATURE_FLAGS.FEATURE_WEBSITE_CONTEXT)) {
+    const targetSlug = resolveTargetFlowSlug(websiteContext);
+    if (targetSlug) {
+      // Find an active flow whose description or name indicates template match,
+      // or trigger_config has matching slug / keyword / tag
+      const matchedFlow = typed.find((f) => {
+        const desc = (f.description ?? "").toLowerCase();
+        const name = (f.name ?? "").toLowerCase();
+        const target = targetSlug.toLowerCase();
+        // Exact name or description slug match or starts with target name
+        return (
+          name.includes(target) ||
+          desc.includes(target) ||
+          (f.trigger_config as Record<string, unknown>)?.template_slug === targetSlug
+        );
+      });
+      if (matchedFlow) {
+        return matchedFlow;
+      }
+    }
+  }
+
+  // 2. Vendor Self-Service match: if feature enabled and sender is identified as vendor or eligible to claim,
+  // check if inbound message references business self-service or matches vendor keywords
+  if (
+    vendorInfo &&
+    (vendorInfo.isVendor || vendorInfo.unclaimedListing) &&
+    isFeatureEnabled(FEATURE_FLAGS.FEATURE_VENDOR_SELF_SERVICE)
+  ) {
+    const candidates = entryTriggerTexts(message);
+    const vendorKeywords = ["my business", "business", "vyaparam", "listing", "షాపు", "వ్యాపారం"];
+    const isVendorInquiry = candidates.some((t) => {
+      const lower = t.toLowerCase();
+      return vendorKeywords.some((vk) => lower.includes(vk));
+    });
+
+    if (isVendorInquiry) {
+      const myBusinessFlow = typed.find((f) => {
+        const name = (f.name ?? "").toLowerCase();
+        const desc = (f.description ?? "").toLowerCase();
+        const trigger = (f.trigger_config as Record<string, unknown>)?.template_slug;
+        return (
+          trigger === "my_business" ||
+          name.includes("my business") ||
+          name.includes("business self") ||
+          desc.includes("my_business")
+        );
+      });
+      if (myBusinessFlow) {
+        return myBusinessFlow;
+      }
+    }
+  }
+
+  // 3. Normal trigger evaluation: candidates from entry texts
+  const candidates = entryTriggerTexts(message);
+
   for (const flow of typed) {
     if (flow.trigger_type === "keyword") {
       const cfg = flow.trigger_config as KeywordTriggerConfig;
@@ -370,15 +431,8 @@ async function findEntryFlow(
         return flow;
       }
     } else if (flow.trigger_type === "first_inbound_message" && isFirstInbound) {
-      // Also reachable by a tap now: a broadcast template with a
-      // quick-reply button can genuinely be what prompts a contact's
-      // first-ever inbound. The automations dispatcher has always
-      // treated a tap that way (the webhook pushes
-      // `first_inbound_message` regardless of envelope) — flows were
-      // the inconsistent half.
       return flow;
     }
-    // 'manual' triggers do not auto-start from inbound messages.
   }
   return null;
 }
@@ -927,18 +981,38 @@ export async function dispatchInboundToFlows(
       return handleReplyForActiveRun(db, activeRun, input.message, nodes);
     }
 
-    // No active run → look for a flow whose entry trigger matches.
+    // Extract or parse website context if available
+    // Extract or parse website context if available
+    let websiteCtx: WebsiteContext | null = null;
+    if (input.websiteContext) {
+      websiteCtx = input.websiteContext as unknown as WebsiteContext;
+    } else if (input.message.kind === "text") {
+      const parsed = parseWebsiteContext(input.message.text);
+      if (parsed) {
+        websiteCtx = parsed.context;
+      }
+    }
+
+    // Identify vendor if phone number is available and vendor self service enabled
+    let vendorInfo: VendorIdentificationResult | null = null;
+    if (input.senderPhone && isFeatureEnabled(FEATURE_FLAGS.FEATURE_VENDOR_SELF_SERVICE)) {
+      vendorInfo = await identifyVendorByPhone(db, input.accountId, input.senderPhone);
+    }
+
+    // No active run → look for a flow whose entry trigger or website context matches.
     const flow = await findEntryFlow(
       db,
       input.accountId,
       input.message,
       input.isFirstInboundMessage,
+      websiteCtx,
+      vendorInfo,
     );
     if (!flow || !flow.entry_node_id) {
       return { consumed: false, outcome: "no_match" };
     }
     const nodes = await loadAllNodes(db, flow.id);
-    return startNewRun(db, flow, input, nodes);
+    return startNewRun(db, flow, input, nodes, vendorInfo);
   } catch (err) {
     console.error(
       "[flows] dispatchInboundToFlows threw:",
@@ -1120,10 +1194,41 @@ async function startNewRun(
   flow: FlowRow,
   input: DispatchInboundInput,
   nodes: Map<string, FlowNodeRow>,
+  vendorInfo?: VendorIdentificationResult | null,
 ): Promise<DispatchInboundResult> {
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
+  // Extract website context if passed
+  let websiteCtx: WebsiteContext | null = null;
+  if (input.websiteContext) {
+    websiteCtx = input.websiteContext as unknown as WebsiteContext;
+  } else if (input.message.kind === "text") {
+    const parsed = parseWebsiteContext(input.message.text);
+    if (parsed) {
+      websiteCtx = parsed.context;
+    }
+  }
+
+  const initialVars: Record<string, unknown> = {};
+  if (websiteCtx) {
+    initialVars.website_context = websiteCtx;
+  }
+  if (vendorInfo) {
+    initialVars.is_vendor = vendorInfo.isVendor;
+    if (vendorInfo.vendorProfile) {
+      initialVars.vendor_profile_id = vendorInfo.vendorProfile.id;
+      initialVars.vendor_name = vendorInfo.vendorProfile.display_name;
+    }
+    if (vendorInfo.listings.length > 0) {
+      initialVars.active_listing_id = vendorInfo.listings[0].id;
+      initialVars.business_name = vendorInfo.listings[0].name;
+    } else if (vendorInfo.unclaimedListing) {
+      initialVars.unclaimed_listing_id = vendorInfo.unclaimedListing.id;
+      initialVars.business_name = vendorInfo.unclaimedListing.name;
+    }
+  }
+
   const { data: inserted, error: insErr } = await db
     .from("flow_runs")
     .insert({
@@ -1140,6 +1245,7 @@ async function startNewRun(
       conversation_id: input.conversationId,
       status: "active",
       current_node_key: flow.entry_node_id,
+      vars: initialVars,
     })
     .select("*")
     .maybeSingle();
@@ -1157,6 +1263,7 @@ async function startNewRun(
     flow_id: flow.id,
     trigger_type: flow.trigger_type,
     meta_message_id: input.message.meta_message_id,
+    website_context: websiteCtx ?? undefined,
   });
   // Bump the flow's execution counter — used by the builder UI to
   // surface "X runs since activation" on the flow card.

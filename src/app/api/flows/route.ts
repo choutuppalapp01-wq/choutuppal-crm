@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { buildTemplateWithOverrides } from '@/lib/flows/templates'
+import { validateFlowForActivation } from '@/lib/flows/validate'
 
 /**
  * GET /api/flows — list the caller's flows.
@@ -148,6 +149,30 @@ export async function POST(request: Request) {
     if (!template) {
       return NextResponse.json(
         { error: `Unknown template_slug "${body.template_slug}"` },
+        { status: 400 },
+      )
+    }
+
+    const issues = validateFlowForActivation(
+      {
+        name: template.name,
+        trigger_type: template.trigger_type,
+        trigger_config: template.trigger_config as Record<string, unknown>,
+        entry_node_id: template.entry_node_id,
+      },
+      template.nodes as Array<{
+        node_key: string;
+        node_type: string;
+        config: Record<string, unknown>;
+      }>,
+    )
+    const blockers = issues.filter((i) => i.severity === 'error')
+    if (blockers.length > 0) {
+      return NextResponse.json(
+        {
+          error: `Template graph validation failed: ${blockers.map((b) => b.message).join('; ')}`,
+          issues,
+        },
         { status: 400 },
       )
     }

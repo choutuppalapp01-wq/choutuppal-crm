@@ -356,6 +356,8 @@ export interface DispatchInboundInput {
   contactId: string;
   conversationId: string;
   message: ParsedInbound;
+  websiteContext?: Record<string, unknown> | null;
+  senderPhone?: string | null;
 }
 
 export interface DispatchInboundResult {

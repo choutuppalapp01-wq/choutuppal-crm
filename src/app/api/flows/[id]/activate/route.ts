@@ -3,6 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { validateFlowForActivation } from '@/lib/flows/validate'
+import {
+  detectFlowCollisions,
+  type FlowCollisionCandidate,
+} from '@/lib/flows/collision'
 
 /**
  * POST /api/flows/[id]/activate
@@ -70,7 +74,7 @@ export async function POST(
     const [{ data: flow }, { data: nodes }] = await Promise.all([
       admin
         .from('flows')
-        .select('name, trigger_type, trigger_config, entry_node_id')
+        .select('account_id, name, trigger_type, trigger_config, entry_node_id')
         .eq('id', id)
         .maybeSingle(),
       admin
@@ -100,6 +104,35 @@ export async function POST(
         {
           error: 'Cannot activate flow — fix the issues below first.',
           issues,
+        },
+        { status: 422 },
+      )
+    }
+
+    // Collision detection against other active flows in the same account
+    const { data: otherActiveFlows } = await admin
+      .from('flows')
+      .select('id, name, trigger_type, trigger_config, status')
+      .eq('account_id', flow.account_id)
+      .eq('status', 'active')
+      .neq('id', id)
+
+    const collisions = detectFlowCollisions(
+      (otherActiveFlows ?? []) as FlowCollisionCandidate[],
+      {
+        id,
+        name: flow.name,
+        trigger_type: flow.trigger_type,
+        trigger_config: flow.trigger_config as Record<string, unknown>,
+        status: 'active',
+      },
+    )
+
+    if (collisions.length > 0) {
+      return NextResponse.json(
+        {
+          error: 'Cannot activate flow — collision detected with existing active flows.',
+          collisions,
         },
         { status: 422 },
       )
