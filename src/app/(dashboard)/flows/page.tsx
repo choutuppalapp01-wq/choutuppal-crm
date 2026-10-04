@@ -23,6 +23,7 @@ import {
   Megaphone,
   Building2,
   Briefcase,
+  X,
 } from "lucide-react";
 
 import { useTranslations } from "next-intl";
@@ -273,67 +274,90 @@ export default function FlowsPage() {
       )}
 
       <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        {/* `sm:max-w-4xl` not `max-w-4xl` — shadcn's DialogContent has
-            `sm:max-w-sm` baked into its default classes. Without the
-            sm: prefix our override applies at base only and the
-            sm-scoped 384px wins at every real desktop breakpoint. */}
-        <DialogContent className="sm:max-w-4xl bg-popover text-popover-foreground">
-          <DialogHeader>
-            <DialogTitle>{t("createTitle")}</DialogTitle>
-            <DialogDescription className="text-muted-foreground">
-              {t("createDesc")}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogContent
+          className="flex max-h-[min(90vh,760px)] flex-col gap-0 overflow-hidden border-border/80 bg-popover p-0 text-popover-foreground sm:max-w-4xl"
+          showCloseButton={false}
+        >
+          {/* Header with Title and Accessible Close Button */}
+          <div className="flex shrink-0 items-start justify-between border-b border-border/80 px-6 pt-5 pb-4">
+            <DialogHeader className="gap-1 text-left">
+              <DialogTitle className="text-lg font-semibold text-popover-foreground">
+                {t("createTitle")}
+              </DialogTitle>
+              <DialogDescription className="text-xs text-muted-foreground">
+                {t("createDesc")}
+              </DialogDescription>
+            </DialogHeader>
 
-          {templates.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">
-                {t("startTemplate")}
-              </p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {templates.map((template) => {
-                  const Icon = TEMPLATE_ICONS[template.icon] ?? FileText;
-                  return (
-                    <button
-                      key={template.slug}
-                      type="button"
-                      onClick={() => handleUseTemplate(template.slug)}
-                      disabled={creating}
-                      className="flex flex-col gap-2.5 rounded-lg border border-border bg-background p-4 text-left transition-colors hover:border-primary/40 hover:bg-muted disabled:opacity-50"
-                    >
-                      <Icon className="h-5 w-5 text-primary" />
-                      <span className="text-sm font-semibold text-popover-foreground">
-                        {template.name}
-                      </span>
-                      <span className="text-xs leading-relaxed text-muted-foreground">
-                        {template.description}
-                      </span>
-                      <span className="mt-auto border-t border-border pt-2 text-[11px] text-muted-foreground">
-                        {t("nodeCount", { count: template.node_count })}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-2 border-t border-border pt-4">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {t("startBlank")}
-            </p>
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder={t("placeholderName")}
-              className="bg-muted"
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleCreate();
-              }}
-            />
+            <button
+              type="button"
+              onClick={() => setCreateOpen(false)}
+              disabled={creating}
+              aria-label="Close"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:pointer-events-none"
+            >
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </button>
           </div>
 
-          <DialogFooter>
+          {/* Scrollable Body: Templates + Start Blank */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5 space-y-6">
+            {templates.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t("startTemplate")}
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {templates.map((template) => {
+                    const Icon = TEMPLATE_ICONS[template.icon] ?? FileText;
+                    return (
+                      <button
+                        key={template.slug}
+                        type="button"
+                        onClick={() => handleUseTemplate(template.slug)}
+                        disabled={creating}
+                        className="group flex flex-col gap-2.5 rounded-xl border border-border/80 bg-background/60 p-4 text-left transition-all hover:border-primary/50 hover:bg-muted/70 hover:shadow-xs focus:outline-none focus:ring-2 focus:ring-primary/40 disabled:opacity-50"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Icon className="h-5 w-5 text-primary shrink-0 transition-transform group-hover:scale-105" />
+                          <span className="text-sm font-semibold text-popover-foreground line-clamp-1">
+                            {template.name}
+                          </span>
+                        </div>
+                        <span className="text-xs leading-relaxed text-muted-foreground line-clamp-3">
+                          {template.description}
+                        </span>
+                        <span className="mt-auto border-t border-border/60 pt-2 text-[11px] font-medium text-muted-foreground">
+                          {t("nodeCount", { count: template.node_count })}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3 rounded-xl border border-border/80 bg-background/40 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {t("startBlank")}
+              </p>
+              <div className="space-y-2">
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder={t("placeholderName")}
+                  className="bg-muted/70 border-border"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleCreate();
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Sticky Footer */}
+          <DialogFooter className="border-t border-border/80 bg-muted/40 px-6 py-3.5 sm:justify-end">
             <Button
               variant="ghost"
               onClick={() => setCreateOpen(false)}

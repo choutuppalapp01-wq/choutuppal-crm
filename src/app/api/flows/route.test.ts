@@ -104,6 +104,51 @@ describe("POST /api/flows template clone", () => {
     }));
   });
 
+  it("creates a flow from template without explicit name, using the template canonical name", async () => {
+    const response = await POST(request({
+      template_slug: "welcome_menu",
+    }));
+    const body = await response.json();
+    expect(response.status).toBe(201);
+    expect(mocks.insertFlow).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Choutuppal Welcome Menu",
+      account_id: "account-1",
+      status: "draft",
+    }));
+    expect(body.flow.id).toBe("flow-1");
+  });
+
+  it("creates a flow from template with custom explicit name", async () => {
+    const response = await POST(request({
+      template_slug: "welcome_menu",
+      name: "My Custom Welcome",
+    }));
+    const body = await response.json();
+    expect(response.status).toBe(201);
+    expect(mocks.insertFlow).toHaveBeenCalledWith(expect.objectContaining({
+      name: "My Custom Welcome",
+      account_id: "account-1",
+      status: "draft",
+    }));
+    expect(body.flow.id).toBe("flow-1");
+  });
+
+  it("returns 400 'name is required' for blank flow without name", async () => {
+    const response = await POST(request({}));
+    const body = await response.json();
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("name is required");
+    expect(mocks.insertFlow).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 'name is required' for blank flow with whitespace-only name", async () => {
+    const response = await POST(request({ name: "   " }));
+    const body = await response.json();
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("name is required");
+    expect(mocks.insertFlow).not.toHaveBeenCalled();
+  });
+
   it("returns a clear 400 for an unknown template before inserting", async () => {
     const response = await POST(request({
       name: "Unknown template",

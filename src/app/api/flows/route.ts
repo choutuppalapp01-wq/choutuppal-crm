@@ -97,8 +97,11 @@ export async function POST(request: Request) {
 
   const triggerTypes = ['keyword', 'first_inbound_message', 'manual'] as const
   const trigger_type = body.trigger_type ?? 'keyword'
-  if (typeof body.name !== 'string' || !body.name.trim()) {
+  if (!body.template_slug && (typeof body.name !== 'string' || !body.name.trim())) {
     return NextResponse.json({ error: 'name is required' }, { status: 400 })
+  }
+  if (body.name !== undefined && (typeof body.name !== 'string' || !body.name.trim())) {
+    return NextResponse.json({ error: 'name must be a non-empty string' }, { status: 400 })
   }
   if (body.trigger_type !== undefined && !triggerTypes.includes(body.trigger_type)) {
     return NextResponse.json({ error: `Unsupported trigger_type "${body.trigger_type}"` }, { status: 400 })
@@ -223,12 +226,15 @@ export async function POST(request: Request) {
     }
   }
 
+  // In the non-template path, `body.name` is guaranteed to be a non-empty string by the guard above.
+  const flowName = body.name!.trim()
+
   const { data, error } = await admin
     .from('flows')
     .insert({
       user_id: userId,
       account_id: accountId,
-      name: body.name.trim(),
+      name: flowName,
       description: body.description ?? null,
       status: 'draft',
       trigger_type,
