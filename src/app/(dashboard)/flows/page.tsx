@@ -156,7 +156,7 @@ export default function FlowsPage() {
         body: JSON.stringify({
           name: newName.trim(),
           trigger_type: "keyword",
-          trigger_config: { keywords: [] },
+          trigger_config: { keywords: ["Hi"], match_type: "contains" },
         }),
       });
       if (!res.ok) throw new Error(`Create failed: ${res.status}`);

@@ -1183,6 +1183,10 @@
           "label": "미디어 보내기",
           "blurb": "이미지, 동영상, 문서를 보냅니다"
         },
+        "send_contact": {
+          "label": "연락처 보내기",
+          "blurb": "연락처 카드 또는 vCard를 보냅니다"
+        },
         "collect_input": {
           "label": "입력 수집",
           "blurb": "질문을 하고 응답을 저장합니다"
