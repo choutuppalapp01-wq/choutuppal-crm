@@ -72,6 +72,8 @@ import {
   type KeywordTriggerConfig,
 } from "./types";
 
+import { matchesWholeWord } from "@/lib/automations/engine";
+
 // ============================================================
 // Pure helpers — extracted so engine.test.ts can exercise them
 // without a Supabase / Meta mock.
@@ -102,7 +104,7 @@ export function matchReplyId(
 }
 
 /**
- * Case-insensitive contains/exact match against a list of keywords.
+ * Case-insensitive exact/word/contains match against a list of keywords.
  * Used by the trigger evaluator. Stable enough that the v3 builder
  * UI can preview matches by passing canned strings.
  */
@@ -115,9 +117,21 @@ export function matchesKeywordTrigger(
   const haystack = cfg.case_sensitive ? text : text.toLowerCase();
   for (const raw of cfg.keywords) {
     if (!raw) continue;
-    const needle = cfg.case_sensitive ? raw : raw.toLowerCase();
-    if (matchType === "exact" ? haystack === needle : haystack.includes(needle)) {
-      return true;
+    if (matchType === "word") {
+      if (matchesWholeWord(text, raw, cfg.case_sensitive)) {
+        return true;
+      }
+    } else if (matchType === "exact") {
+      const needle = cfg.case_sensitive ? raw : raw.toLowerCase();
+      if (haystack === needle) {
+        return true;
+      }
+    } else {
+      // "contains"
+      const needle = cfg.case_sensitive ? raw : raw.toLowerCase();
+      if (haystack.includes(needle)) {
+        return true;
+      }
     }
   }
   return false;

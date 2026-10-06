@@ -92,7 +92,7 @@ const WELCOME_MENU: FlowTemplate = {
       "menu",
       "test",
     ],
-    match_type: "contains",
+    match_type: "word",
   },
   entry_node_id: "start",
   nodes: [
@@ -281,7 +281,7 @@ const WELCOME_MENU_V2: FlowTemplate = {
   trigger_type: "keyword",
   trigger_config: {
     keywords: ["Hi", "hi", "HI", "Hello", "hello", "నమస్కారం", "హాయ్", "నమస్తే", "Menu", "మెనూ", "start"],
-    match_type: "contains",
+    match_type: "word",
   },
   entry_node_id: "start",
   nodes: [

@@ -141,6 +141,84 @@ describe("matchesKeywordTrigger", () => {
     expect(matchesKeywordTrigger("support center", cfg)).toBe(true);
     expect(matchesKeywordTrigger("nope", cfg)).toBe(false);
   });
+
+  describe("match_type='word' (Unicode-aware whole-word matching)", () => {
+    const wordCfg = {
+      keywords: ["hi", "start", "నమస్కారం"],
+      match_type: "word" as const,
+    };
+
+    it("'hi' matches 'hi' with word mode", () => {
+      expect(matchesKeywordTrigger("hi", wordCfg)).toBe(true);
+    });
+
+    it("'Hi' matches 'hi' with word mode", () => {
+      expect(matchesKeywordTrigger("Hi", wordCfg)).toBe(true);
+    });
+
+    it("'Hi!' matches 'hi' with word mode", () => {
+      expect(matchesKeywordTrigger("Hi!", wordCfg)).toBe(true);
+    });
+
+    it("'hello' matches 'hello' with word mode", () => {
+      const cfg = { keywords: ["hello"], match_type: "word" as const };
+      expect(matchesKeywordTrigger("hello", cfg)).toBe(true);
+      expect(matchesKeywordTrigger("Hello 👋", cfg)).toBe(true);
+    });
+
+    it("'this is my problem' DOES NOT match 'hi'", () => {
+      expect(matchesKeywordTrigger("this is my problem", wordCfg)).toBe(false);
+    });
+
+    it("'vehicle history' DOES NOT match 'hi'", () => {
+      expect(matchesKeywordTrigger("vehicle history", wordCfg)).toBe(false);
+    });
+
+    it("'starting tomorrow' DOES NOT match 'start'", () => {
+      expect(matchesKeywordTrigger("starting tomorrow", wordCfg)).toBe(false);
+    });
+
+    it("'restarting' DOES NOT match 'start'", () => {
+      expect(matchesKeywordTrigger("restarting", wordCfg)).toBe(false);
+    });
+
+    it("Telugu 'నమస్కారం' matches correctly", () => {
+      expect(matchesKeywordTrigger("నమస్కారం", wordCfg)).toBe(true);
+      expect(matchesKeywordTrigger("నమస్కారం! అండీ", wordCfg)).toBe(true);
+    });
+
+    it("Telugu/Hindi text containing unrelated characters does not produce false positives", () => {
+      // Unrelated Telugu word
+      expect(matchesKeywordTrigger("ధన్యవాదాలు", wordCfg)).toBe(false);
+      // Hindi word
+      const hindiCfg = { keywords: ["नमस्ते"], match_type: "word" as const };
+      expect(matchesKeywordTrigger("नमस्ते जी", hindiCfg)).toBe(true);
+      expect(matchesKeywordTrigger("धन्यवाद", hindiCfg)).toBe(false);
+    });
+
+    it("Existing contains behavior still works for a long keyword", () => {
+      const containsCfg = {
+        keywords: ["business promotion"],
+        match_type: "contains" as const,
+      };
+      expect(
+        matchesKeywordTrigger(
+          "I want info about business promotion packages",
+          containsCfg,
+        ),
+      ).toBe(true);
+    });
+
+    it("Existing exact behavior still works", () => {
+      const exactCfg = {
+        keywords: ["menu"],
+        match_type: "exact" as const,
+      };
+      expect(matchesKeywordTrigger("menu", exactCfg)).toBe(true);
+      expect(matchesKeywordTrigger("MENU", exactCfg)).toBe(true);
+      expect(matchesKeywordTrigger("show menu", exactCfg)).toBe(false);
+    });
+  });
 });
 
 describe("node classification helpers", () => {
