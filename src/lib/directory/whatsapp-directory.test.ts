@@ -160,7 +160,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(details).not.toContain('https://maps.google.com');
   });
 
-  it('builds listing details actions with breadcrumb back navigation', () => {
+  it('builds listing details actions with interactive reply buttons and navigation', () => {
     const listing: DirectoryListing = {
       id: 'uuid-1',
       name: 'Test Shop',
@@ -182,10 +182,109 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       listingPage: 2,
     });
 
+    // 1. Reply buttons (Meta max 3, <= 20 chars each)
+    expect(actions.buttons.length).toBe(3);
+    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-001', title: '📞 Call' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-001', title: '💬 WhatsApp' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
+    for (const btn of actions.buttons) {
+      expect(btn.title.length).toBeLessThanOrEqual(20);
+    }
+    expect(actions.bodyText.length).toBeLessThanOrEqual(1024);
+
+    // 2. Sections list fallback
     expect(actions.sections[0].rows.length).toBe(3);
     expect(actions.sections[0].rows[0].id).toBe('dir_listpage_automobile_2');
     expect(actions.sections[0].rows[1].id).toBe('dir_browse');
     expect(actions.sections[0].rows[2].id).toBe('dir_back_biz_menu');
+  });
+
+  it('includes Call button and omits WhatsApp button when WhatsApp phone is blank', () => {
+    const listing: DirectoryListing = {
+      id: 'uuid-callonly',
+      name: 'Call Only Shop',
+      category_slug: 'automobile',
+      phone: '9885374861',
+      whatsapp_phone: '',
+      city: 'Choutuppal',
+      services: [],
+      business_hours: {},
+      status: 'active',
+      is_verified: false,
+      is_premium: false,
+      metadata: { listing_id: 'CPL-BIZ-002' },
+    };
+
+    const actions = buildListingDetailsActions({
+      listing,
+      categorySlug: 'automobile',
+      listingPage: 1,
+    });
+
+    expect(actions.buttons.some((b) => b.id === 'dir_call_CPL-BIZ-002')).toBe(true);
+    expect(actions.buttons.some((b) => b.id.startsWith('dir_wa_'))).toBe(false);
+    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
+    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
+    expect(actions.buttons.length).toBeLessThanOrEqual(3);
+  });
+
+  it('includes WhatsApp button and omits Call button when phone is blank', () => {
+    const listing: DirectoryListing = {
+      id: 'uuid-waonly',
+      name: 'WhatsApp Only Shop',
+      category_slug: 'automobile',
+      phone: '',
+      whatsapp_phone: '9885374861',
+      city: 'Choutuppal',
+      services: [],
+      business_hours: {},
+      status: 'active',
+      is_verified: false,
+      is_premium: false,
+      metadata: { listing_id: 'CPL-BIZ-003' },
+    };
+
+    const actions = buildListingDetailsActions({
+      listing,
+      categorySlug: 'automobile',
+      listingPage: 1,
+    });
+
+    expect(actions.buttons.some((b) => b.id.startsWith('dir_call_'))).toBe(false);
+    expect(actions.buttons.some((b) => b.id === 'dir_wa_CPL-BIZ-003')).toBe(true);
+    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
+    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
+    expect(actions.buttons.length).toBeLessThanOrEqual(3);
+  });
+
+  it('omits both Call and WhatsApp buttons when phone and WhatsApp phone are blank', () => {
+    const listing: DirectoryListing = {
+      id: 'uuid-nophone',
+      name: 'No Phone Shop',
+      category_slug: 'automobile',
+      phone: '',
+      whatsapp_phone: '',
+      city: 'Choutuppal',
+      services: [],
+      business_hours: {},
+      status: 'active',
+      is_verified: false,
+      is_premium: false,
+      metadata: { listing_id: 'CPL-BIZ-004' },
+    };
+
+    const actions = buildListingDetailsActions({
+      listing,
+      categorySlug: 'automobile',
+      listingPage: 1,
+    });
+
+    expect(actions.buttons.some((b) => b.id.startsWith('dir_call_'))).toBe(false);
+    expect(actions.buttons.some((b) => b.id.startsWith('dir_wa_'))).toBe(false);
+    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
+    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
+    expect(actions.buttons.some((b) => b.id === 'dir_back_biz_menu')).toBe(true);
+    expect(actions.buttons.length).toBeLessThanOrEqual(3);
   });
 
   it('queries database with status in (active, published) filter and excludes pending records', async () => {

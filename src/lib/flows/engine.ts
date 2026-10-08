@@ -59,7 +59,9 @@ import {
   buildListingListPayload,
   getListingById,
   buildListingDetailsActions,
+  formatWhatsAppUrl,
 } from "@/lib/directory/whatsapp-directory";
+import type { InteractiveButton } from "@/lib/whatsapp/meta-api";
 import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/flags";
 import {
   type CollectInputNodeConfig,
@@ -1226,14 +1228,13 @@ async function handleReplyForActiveRun(
           listingPage: curPage,
         });
 
-        const { whatsapp_message_id } = await engineSendInteractiveList({
+        const { whatsapp_message_id } = await engineSendInteractiveButtons({
           accountId: run.account_id,
           userId: run.user_id,
           conversationId: run.conversation_id!,
           contactId: run.contact_id!,
           bodyText: detailsPayload.bodyText,
-          buttonLabel: detailsPayload.buttonLabel,
-          sections: detailsPayload.sections,
+          buttons: detailsPayload.buttons,
         });
 
         const updatedVars = {
@@ -1244,9 +1245,157 @@ async function handleReplyForActiveRun(
         await db.from("flow_runs").update({ vars: updatedVars, reprompt_count: 0 }).eq("id", run.id);
         run.vars = updatedVars;
         await logEvent(db, run.id, "message_sent", run.current_node_key, {
-          node_type: "send_list",
+          node_type: "send_buttons",
           whatsapp_message_id,
           directory_action: "view_details",
+          listing_id: listingId,
+        });
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+    }
+
+    // 5. Call Action Selected -> Send Native Contact Card + Dial Confirmation with Navigation
+    if (replyId.startsWith("dir_call_")) {
+      const listingId = replyId.replace("dir_call_", "");
+      const listing = await getListingById(db, run.account_id, listingId);
+
+      if (listing) {
+        const phone = (listing.phone || "").trim();
+        const catSlug = (run.vars.dir_category as string) || listing.category_slug || "uncategorized";
+        const curPage = Number(run.vars.dir_list_page || 1);
+
+        // Send native WhatsApp Contact Card with native Call & Message buttons
+        if (phone) {
+          try {
+            await engineSendContact({
+              accountId: run.account_id,
+              userId: run.user_id,
+              conversationId: run.conversation_id!,
+              contactId: run.contact_id!,
+              contacts: [
+                {
+                  name: listing.name,
+                  org: {
+                    company: listing.name,
+                    title: listing.category_slug || "Business",
+                  },
+                  phones: [
+                    {
+                      phone,
+                      type: "WORK",
+                    },
+                  ],
+                },
+              ],
+            });
+          } catch (err) {
+            console.error("[directory] engineSendContact error:", err);
+          }
+        }
+
+        const dialText = phone
+          ? `📞 *${listing.name}*\n\nఫోన్ నంబర్: *${phone}*\n\nనేరుగా కాల్ చేయడానికి పై కాంటాక్ట్ కార్డ్ లేదా నంబర్‌ను ఉపయోగించండి.`
+          : `📞 *${listing.name}*\n\nఈ వ్యాపారానికి ఫోన్ నంబర్ అందుబాటులో లేదు.`;
+
+        const wa = (listing.whatsapp_phone || "").trim();
+        const navButtons: InteractiveButton[] = [];
+        if (wa) {
+          navButtons.push({
+            id: `dir_wa_${listingId}`,
+            title: "💬 WhatsApp",
+          });
+        }
+        navButtons.push({
+          id: `dir_item_${listingId}`,
+          title: "📋 Details",
+        });
+        if (navButtons.length < 3) {
+          if (catSlug && catSlug !== "uncategorized") {
+            navButtons.push({
+              id: `dir_listpage_${catSlug}_${curPage}`,
+              title: "🔙 Back",
+            });
+          } else {
+            navButtons.push({
+              id: "dir_browse",
+              title: "📁 All Categories",
+            });
+          }
+        }
+
+        const { whatsapp_message_id } = await engineSendInteractiveButtons({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          bodyText: dialText,
+          buttons: navButtons,
+        });
+
+        await logEvent(db, run.id, "message_sent", run.current_node_key, {
+          node_type: "send_buttons",
+          whatsapp_message_id,
+          directory_action: "call_listing",
+          listing_id: listingId,
+        });
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+    }
+
+    // 6. WhatsApp Action Selected -> Send Direct wa.me Chat Link + Navigation
+    if (replyId.startsWith("dir_wa_")) {
+      const listingId = replyId.replace("dir_wa_", "");
+      const listing = await getListingById(db, run.account_id, listingId);
+
+      if (listing) {
+        const wa = (listing.whatsapp_phone || "").trim();
+        const catSlug = (run.vars.dir_category as string) || listing.category_slug || "uncategorized";
+        const curPage = Number(run.vars.dir_list_page || 1);
+        const waUrl = wa ? formatWhatsAppUrl(wa) : "";
+
+        const waText = waUrl
+          ? `💬 *${listing.name}*\n\nWhatsApp చాట్ ప్రారంభించడానికి క్రింది లింక్‌పై క్లిక్ చేయండి:\n👉 ${waUrl}\n\n(ఫోన్: ${wa})`
+          : `💬 *${listing.name}*\n\nఈ వ్యాపారానికి WhatsApp నంబర్ అందుబాటులో లేదు.`;
+
+        const phone = (listing.phone || "").trim();
+        const navButtons: InteractiveButton[] = [];
+        if (phone) {
+          navButtons.push({
+            id: `dir_call_${listingId}`,
+            title: "📞 Call",
+          });
+        }
+        navButtons.push({
+          id: `dir_item_${listingId}`,
+          title: "📋 Details",
+        });
+        if (navButtons.length < 3) {
+          if (catSlug && catSlug !== "uncategorized") {
+            navButtons.push({
+              id: `dir_listpage_${catSlug}_${curPage}`,
+              title: "🔙 Back",
+            });
+          } else {
+            navButtons.push({
+              id: "dir_browse",
+              title: "📁 All Categories",
+            });
+          }
+        }
+
+        const { whatsapp_message_id } = await engineSendInteractiveButtons({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          bodyText: waText,
+          buttons: navButtons,
+        });
+
+        await logEvent(db, run.id, "message_sent", run.current_node_key, {
+          node_type: "send_buttons",
+          whatsapp_message_id,
+          directory_action: "whatsapp_listing",
           listing_id: listingId,
         });
         return { consumed: true, flow_run_id: run.id, outcome: "advanced" };

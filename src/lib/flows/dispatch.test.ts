@@ -921,5 +921,163 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
         }),
       );
     });
+
+    it("5. dir_item_* renders listing details using interactive reply buttons (Call, WhatsApp, Back)", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-item",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendInteractiveButtons.mockClear();
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_item_CPL-BIZ-001",
+        reply_title: "S.S. Auto Electrical Works",
+        meta_message_id: "m-item-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("S.S. Auto Electrical Works"),
+          buttons: expect.arrayContaining([
+            { id: "dir_call_CPL-BIZ-001", title: "📞 Call" },
+            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
+            { id: "dir_listpage_automobile_1", title: "🔙 Back" },
+          ]),
+        }),
+      );
+    });
+
+    it("6. dir_call_* sends native contact card and dial confirmation with interactive buttons", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-call",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendContact.mockClear();
+      engineSendInteractiveButtons.mockClear();
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_call_CPL-BIZ-001",
+        reply_title: "📞 Call",
+        meta_message_id: "m-call-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      // Verified native WhatsApp contact card was sent
+      expect(engineSendContact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contacts: [
+            expect.objectContaining({
+              name: "S.S. Auto Electrical Works",
+              phones: [{ phone: "9885374861", type: "WORK" }],
+            }),
+          ],
+        }),
+      );
+      // Verified follow-up interactive message with buttons
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("9885374861"),
+          buttons: expect.arrayContaining([
+            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
+            { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
+          ]),
+        }),
+      );
+    });
+
+    it("7. dir_wa_* sends wa.me link and interactive navigation buttons", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-wa",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendInteractiveButtons.mockClear();
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_wa_CPL-BIZ-001",
+        reply_title: "💬 WhatsApp",
+        meta_message_id: "m-wa-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("https://wa.me/919885374861"),
+          buttons: expect.arrayContaining([
+            { id: "dir_call_CPL-BIZ-001", title: "📞 Call" },
+            { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
+          ]),
+        }),
+      );
+    });
   });
 });

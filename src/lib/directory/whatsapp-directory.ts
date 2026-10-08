@@ -14,7 +14,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { normalizePhone } from '@/lib/whatsapp/phone-utils';
-import type { InteractiveListRow, InteractiveListSection } from '@/lib/whatsapp/meta-api';
+import type { InteractiveButton, InteractiveListRow, InteractiveListSection } from '@/lib/whatsapp/meta-api';
 
 export interface DirectoryCategory {
   id: string;
@@ -461,6 +461,11 @@ export function formatListingDetailsText(item: DirectoryListing): string {
 
 /**
  * Builds the interactive action navigation for a listing details view.
+ * Produces up to 3 interactive reply buttons:
+ * - 📞 Call (when phone is present)
+ * - 💬 WhatsApp (when whatsapp_phone / phone is present)
+ * - 📁 All Categories / 🔙 Back
+ * Also preserves sections for list-based consumers.
  */
 export function buildListingDetailsActions(args: {
   listing: DirectoryListing;
@@ -468,17 +473,54 @@ export function buildListingDetailsActions(args: {
   listingPage: number;
 }): {
   bodyText: string;
+  buttons: InteractiveButton[];
   buttonLabel: string;
   sections: InteractiveListSection[];
 } {
   const { listing, categorySlug, listingPage } = args;
-  const detailsText = formatListingDetailsText(listing);
+  const rawDetails = formatListingDetailsText(listing);
+  // Enforce Meta's 1024-char body limit
+  const detailsText = truncate(rawDetails, 1024);
+
+  const listingId = listing.metadata?.listing_id || listing.id;
+  const buttons: InteractiveButton[] = [];
+  const addedIds = new Set<string>();
+
+  const addButton = (id: string, title: string) => {
+    if (buttons.length < 3 && !addedIds.has(id)) {
+      buttons.push({ id, title });
+      addedIds.add(id);
+    }
+  };
+
+  // 1. Call Button (when phone is present and not blank)
+  const phone = (listing.phone || '').trim();
+  if (phone) {
+    addButton(`dir_call_${listingId}`, '📞 Call');
+  }
+
+  // 2. WhatsApp Button (when whatsapp_phone is present and not blank)
+  const wa = (listing.whatsapp_phone || '').trim();
+  if (wa) {
+    addButton(`dir_wa_${listingId}`, '💬 WhatsApp');
+  }
+
+  // 3. Navigation: Back to category listings page if in a category, else All Categories
+  if (categorySlug && categorySlug !== 'uncategorized') {
+    addButton(`dir_listpage_${categorySlug}_${listingPage || 1}`, '🔙 Back');
+  } else {
+    addButton('dir_browse', '📁 All Categories');
+  }
+
+  // If still room (e.g. either phone or wa was absent), add All Categories / Business Menu
+  addButton('dir_browse', '📁 All Categories');
+  addButton('dir_back_biz_menu', '🏠 Business Menu');
 
   const rows: InteractiveListRow[] = [];
 
   // 1. Back to same listings page
   rows.push({
-    id: `dir_listpage_${categorySlug}_${listingPage}`,
+    id: `dir_listpage_${categorySlug}_${listingPage || 1}`,
     title: '🔙 Back to Listings',
     description: 'షాపుల జాబితాకు తిరిగి వెళ్ళండి',
   });
@@ -499,6 +541,7 @@ export function buildListingDetailsActions(args: {
 
   return {
     bodyText: detailsText,
+    buttons,
     buttonLabel: 'మెనూ ఎంపికలు',
     sections: [
       {
