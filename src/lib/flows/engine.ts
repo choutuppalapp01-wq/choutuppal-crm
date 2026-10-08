@@ -52,6 +52,14 @@ import {
   identifyVendorByPhone,
   type VendorIdentificationResult,
 } from "@/lib/directory/vendor-service";
+import {
+  getActiveCategories,
+  buildCategoryListPayload,
+  getActiveListingsByCategory,
+  buildListingListPayload,
+  getListingById,
+  buildListingDetailsActions,
+} from "@/lib/directory/whatsapp-directory";
 import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/flags";
 import {
   type CollectInputNodeConfig,
@@ -1137,6 +1145,177 @@ async function handleReplyForActiveRun(
       flow_run_id: run.id,
       outcome: outcome.outcome,
     };
+  }
+
+  // ============================================================
+  // Dynamic Local Directory Navigation Handlers
+  // Intercepts directory requests (opt_browse_directory or dir_*)
+  // Reads ONLY from business_listings and categories in CRM DB.
+  // Self-service: No agent handoff.
+  // ============================================================
+  if (message.kind === "interactive_reply" && (message.reply_id === "opt_browse_directory" || message.reply_id.startsWith("dir_"))) {
+    const replyId = message.reply_id;
+
+    // 1. Return to Main Business Menu
+    if (replyId === "dir_back_biz_menu") {
+      const bizMenuNode = nodes.get("biz_menu") || nodes.get("route_business");
+      if (bizMenuNode) {
+        // Clear directory state in run vars
+        const updatedVars = { ...run.vars };
+        delete updatedVars.dir_mode;
+        delete updatedVars.dir_category;
+        delete updatedVars.dir_cat_page;
+        delete updatedVars.dir_list_page;
+        delete updatedVars.dir_listing_id;
+        await db.from("flow_runs").update({ vars: updatedVars, current_node_key: bizMenuNode.node_key, reprompt_count: 0 }).eq("id", run.id);
+        run.vars = updatedVars;
+        run.current_node_key = bizMenuNode.node_key;
+        if (bizMenuNode.node_type === "send_list") {
+          await sendListAndSuspend(db, run, bizMenuNode);
+        } else if (bizMenuNode.node_type === "send_buttons") {
+          await sendButtonsAndSuspend(db, run, bizMenuNode);
+        }
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+    }
+
+    // 2. Browse Categories (Initial or Back)
+    if (replyId === "dir_browse" || replyId === "opt_browse_directory" || replyId.startsWith("dir_catpage_")) {
+      let targetPage = 1;
+      if (replyId.startsWith("dir_catpage_")) {
+        const pageNum = parseInt(replyId.replace("dir_catpage_", ""), 10);
+        if (!isNaN(pageNum) && pageNum > 0) targetPage = pageNum;
+      }
+      const categories = await getActiveCategories(db, run.account_id);
+      const catPayload = buildCategoryListPayload({ categories, page: targetPage });
+
+      const { whatsapp_message_id } = await engineSendInteractiveList({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        bodyText: catPayload.bodyText,
+        buttonLabel: catPayload.buttonLabel,
+        sections: catPayload.sections,
+      });
+
+      const updatedVars = {
+        ...run.vars,
+        dir_mode: true,
+        dir_cat_page: targetPage,
+      };
+      await db.from("flow_runs").update({ vars: updatedVars, reprompt_count: 0 }).eq("id", run.id);
+      run.vars = updatedVars;
+      await logEvent(db, run.id, "message_sent", run.current_node_key, {
+        node_type: "send_list",
+        whatsapp_message_id,
+        directory_action: "browse_categories",
+        page: targetPage,
+      });
+      return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+    }
+
+    // 3. Category Selected -> Show Listings (Page 1) OR Paginated Listings
+    if (replyId.startsWith("dir_cat_") || replyId.startsWith("dir_listpage_")) {
+      let categorySlug = "";
+      let listPage = 1;
+
+      if (replyId.startsWith("dir_cat_")) {
+        categorySlug = replyId.replace("dir_cat_", "");
+        listPage = 1;
+      } else {
+        // e.g. dir_listpage_automobile_2
+        const parts = replyId.replace("dir_listpage_", "").split("_");
+        if (parts.length >= 2) {
+          listPage = parseInt(parts.pop()!, 10) || 1;
+          categorySlug = parts.join("_");
+        } else {
+          categorySlug = parts[0];
+          listPage = 1;
+        }
+      }
+
+      // Resolve human-readable category name
+      const categories = await getActiveCategories(db, run.account_id);
+      const matchedCat = categories.find((c) => c.slug === categorySlug);
+      const catName = matchedCat ? (matchedCat.name_te ? `${matchedCat.name_te} (${matchedCat.name_en})` : matchedCat.name_en) : categorySlug;
+
+      const listings = await getActiveListingsByCategory(db, run.account_id, categorySlug);
+      const listPayload = buildListingListPayload({
+        categoryName: catName,
+        categorySlug,
+        listings,
+        page: listPage,
+      });
+
+      const { whatsapp_message_id } = await engineSendInteractiveList({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        bodyText: listPayload.bodyText,
+        buttonLabel: listPayload.buttonLabel,
+        sections: listPayload.sections,
+      });
+
+      const updatedVars = {
+        ...run.vars,
+        dir_mode: true,
+        dir_category: categorySlug,
+        dir_list_page: listPage,
+      };
+      await db.from("flow_runs").update({ vars: updatedVars, reprompt_count: 0 }).eq("id", run.id);
+      run.vars = updatedVars;
+      await logEvent(db, run.id, "message_sent", run.current_node_key, {
+        node_type: "send_list",
+        whatsapp_message_id,
+        directory_action: "browse_listings",
+        category: categorySlug,
+        page: listPage,
+      });
+      return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+    }
+
+    // 4. Listing Selected -> Show Details with Back / Actions Navigation
+    if (replyId.startsWith("dir_item_")) {
+      const listingId = replyId.replace("dir_item_", "");
+      const listing = await getListingById(db, run.account_id, listingId);
+
+      if (listing) {
+        const catSlug = (run.vars.dir_category as string) || listing.category_slug || "uncategorized";
+        const curPage = Number(run.vars.dir_list_page || 1);
+        const detailsPayload = buildListingDetailsActions({
+          listing,
+          categorySlug: catSlug,
+          listingPage: curPage,
+        });
+
+        const { whatsapp_message_id } = await engineSendInteractiveList({
+          accountId: run.account_id,
+          userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          bodyText: detailsPayload.bodyText,
+          buttonLabel: detailsPayload.buttonLabel,
+          sections: detailsPayload.sections,
+        });
+
+        const updatedVars = {
+          ...run.vars,
+          dir_mode: true,
+          dir_listing_id: listingId,
+        };
+        await db.from("flow_runs").update({ vars: updatedVars, reprompt_count: 0 }).eq("id", run.id);
+        run.vars = updatedVars;
+        await logEvent(db, run.id, "message_sent", run.current_node_key, {
+          node_type: "send_list",
+          whatsapp_message_id,
+          directory_action: "view_details",
+          listing_id: listingId,
+        });
+        return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
+      }
+    }
   }
 
   // No match → fallback. Apply the policy.
