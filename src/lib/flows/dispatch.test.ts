@@ -1015,7 +1015,8 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
           contacts: [
             expect.objectContaining({
               name: "S.S. Auto Electrical Works",
-              phones: [{ phone: "9885374861", type: "WORK" }],
+              first_name: "S.S. Auto Electrical Works",
+              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
             }),
           ],
         }),
@@ -1023,16 +1024,17 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       // Verified follow-up interactive message with buttons
       expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
         expect.objectContaining({
-          bodyText: expect.stringContaining("9885374861"),
+          bodyText: expect.stringContaining("కాంటాక్ట్ కార్డ్ పంపబడింది"),
           buttons: expect.arrayContaining([
-            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
             { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
+            { id: "dir_listpage_automobile_1", title: "🔙 Back" },
+            { id: "dir_browse", title: "📁 All Categories" },
           ]),
         }),
       );
     });
 
-    it("7. dir_wa_* sends wa.me link and interactive navigation buttons", async () => {
+    it("7. dir_wa_* sends native contact card and interactive navigation buttons", async () => {
       h.state.categories = sampleCategories;
       h.state.listings = sampleListings;
       h.state.activeRuns = [
@@ -1059,6 +1061,7 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
         },
       ];
 
+      engineSendContact.mockClear();
       engineSendInteractiveButtons.mockClear();
       const result = await dispatch({
         kind: "interactive_reply",
@@ -1069,15 +1072,81 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
 
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
+      expect(engineSendContact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contacts: [
+            expect.objectContaining({
+              name: "S.S. Auto Electrical Works",
+              first_name: "S.S. Auto Electrical Works",
+              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
+            }),
+          ],
+        }),
+      );
       expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
         expect.objectContaining({
-          bodyText: expect.stringContaining("https://wa.me/919885374861"),
+          bodyText: expect.stringContaining("కాంటాక్ట్ కార్డ్ పంపబడింది"),
           buttons: expect.arrayContaining([
-            { id: "dir_call_CPL-BIZ-001", title: "📞 Call" },
             { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
+            { id: "dir_listpage_automobile_1", title: "🔙 Back" },
+            { id: "dir_browse", title: "📁 All Categories" },
           ]),
         }),
       );
+    });
+
+    it("8. handles engineSendContact failure gracefully with error logging and technical fallback", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-err",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendContact.mockRejectedValueOnce(new Error("Meta 400 Param name.first_name is required"));
+      engineSendInteractiveButtons.mockClear();
+
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_call_CPL-BIZ-001",
+        reply_title: "📞 Call",
+        meta_message_id: "m-call-err-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("సాంకేతిక లోపం ఏర్పడింది"),
+        }),
+      );
+      expect(
+        h.state.inserted.some(
+          (i) =>
+            i.table === "flow_run_events" &&
+            (i.row as any).event_type === "error" &&
+            (i.row as any).payload?.reason === "contact_card_send_failed",
+        ),
+      ).toBe(true);
     });
   });
 });

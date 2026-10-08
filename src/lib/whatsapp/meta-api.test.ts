@@ -24,6 +24,24 @@ const BASE_ARGS = {
 } as const;
 
 describe("WhatsApp contacts message payload", () => {
+  it("A. buildContactMessagePayload includes first_name, formatted_name, +91 normalized phone, wa_id without +, and WORK type", () => {
+    const payload = buildContactMessagePayload({
+      to: "918790083706",
+      contacts: [
+        {
+          name: "S.S. ఆటో ఎలక్ట్రికల్ వర్క్స్",
+          phones: [{ phone: "9885374861" }],
+        },
+      ],
+    });
+    const contact = (payload.contacts as Array<Record<string, any>>)[0];
+    expect(contact.name.formatted_name).toBe("S.S. ఆటో ఎలక్ట్రికల్ వర్క్స్");
+    expect(contact.name.first_name).toBe("S.S. ఆటో ఎలక్ట్రికల్ వర్క్స్");
+    expect(contact.phones[0].phone).toBe("+919885374861");
+    expect(contact.phones[0].wa_id).toBe("919885374861");
+    expect(contact.phones[0].type).toBe("WORK");
+  });
+
   it("maps persisted contact data and multiple phones to Meta's contacts payload", () => {
     expect(
       buildContactMessagePayload({
@@ -49,15 +67,15 @@ describe("WhatsApp contacts message payload", () => {
       type: "contacts",
       contacts: [
         {
-          name: { formatted_name: "Choutuppal App" },
+          name: { formatted_name: "Choutuppal App", first_name: "Choutuppal App" },
           phones: [
-            { phone: "9441348175", type: "CUSTOMER_CARE" },
-            { phone: "9494348175" },
+            { phone: "+919441348175", type: "CUSTOMER_CARE", wa_id: "919441348175" },
+            { phone: "+919494348175", type: "WORK", wa_id: "919494348175" },
           ],
         },
         {
-          name: { formatted_name: "Choutuppal Support" },
-          phones: [{ phone: "9441348176", type: "WORK" }],
+          name: { formatted_name: "Choutuppal Support", first_name: "Choutuppal Support" },
+          phones: [{ phone: "+919441348176", type: "WORK", wa_id: "919441348176" }],
         },
       ],
     });
@@ -87,11 +105,11 @@ describe("WhatsApp contacts message payload", () => {
       type: "contacts",
       contacts: [
         {
-          name: { formatted_name: "Choutuppal App" },
+          name: { formatted_name: "Choutuppal App", first_name: "Choutuppal App" },
           org: { company: "Choutuppal Digital Services" },
           phones: [
-            { phone: "+919441348175", type: "Help Line" },
-            { phone: "+919494348175", type: "Bot Services" },
+            { phone: "+919441348175", type: "Help Line", wa_id: "919441348175" },
+            { phone: "+919494348175", type: "Bot Services", wa_id: "919494348175" },
           ],
         },
       ],
@@ -113,7 +131,15 @@ describe("WhatsApp contacts message payload", () => {
           contacts: [{ name: "Support", phones: [{ phone: "5551234" }] }],
         }),
       ).resolves.toEqual({ messageId: "wamid.CONTACT" });
-      expect(capturedBody).toMatchObject({ type: "contacts", contacts: [{ name: { formatted_name: "Support" } }] });
+      expect(capturedBody).toMatchObject({
+        type: "contacts",
+        contacts: [
+          {
+            name: { formatted_name: "Support", first_name: "Support" },
+            phones: [{ phone: "+5551234", type: "WORK", wa_id: "5551234" }],
+          },
+        ],
+      });
     } finally {
       vi.unstubAllGlobals();
     }

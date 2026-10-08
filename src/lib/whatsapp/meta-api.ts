@@ -9,6 +9,8 @@
  * instead of a runtime rejection from Meta.
  */
 
+import { normalizePhone } from './phone-utils'
+
 const META_API_VERSION = 'v21.0'
 const META_API_BASE = `https://graph.facebook.com/${META_API_VERSION}`
 
@@ -280,6 +282,8 @@ export async function sendTextMessage(
 
 export interface WhatsAppContact {
   name: string
+  first_name?: string
+  last_name?: string
   org?: {
     company?: string
     department?: string
@@ -288,6 +292,7 @@ export interface WhatsAppContact {
   phones: Array<{
     phone: string
     type?: string
+    wa_id?: string
   }>
 }
 
@@ -305,22 +310,43 @@ export function buildContactMessagePayload({
     recipient_type: 'individual',
     to,
     type: 'contacts',
-    contacts: contacts.map((contact) => ({
-      name: { formatted_name: contact.name },
-      ...(contact.org?.company || contact.org?.department || contact.org?.title
-        ? {
-            org: {
-              ...(contact.org.company ? { company: contact.org.company } : {}),
-              ...(contact.org.department ? { department: contact.org.department } : {}),
-              ...(contact.org.title ? { title: contact.org.title } : {}),
-            },
+    contacts: contacts.map((contact) => {
+      const formattedName = contact.name || ''
+      const firstName = contact.first_name || formattedName
+
+      return {
+        name: {
+          formatted_name: formattedName,
+          first_name: firstName,
+          ...(contact.last_name ? { last_name: contact.last_name } : {}),
+        },
+        ...(contact.org?.company || contact.org?.department || contact.org?.title
+          ? {
+              org: {
+                ...(contact.org.company ? { company: contact.org.company } : {}),
+                ...(contact.org.department ? { department: contact.org.department } : {}),
+                ...(contact.org.title ? { title: contact.org.title } : {}),
+              },
+            }
+          : {}),
+        phones: contact.phones.map(({ phone, type, wa_id }) => {
+          const rawDigits = normalizePhone(phone)
+          let standardDigits = rawDigits
+          // Standard 10-digit Indian numbers starting with 6-9 -> prefix 91
+          if (/^[6-9]\d{9}$/.test(rawDigits)) {
+            standardDigits = `91${rawDigits}`
           }
-        : {}),
-      phones: contact.phones.map(({ phone, type }) => ({
-        phone,
-        ...(type?.trim() ? { type: type.trim() } : {}),
-      })),
-    })),
+          const formattedPhone = standardDigits ? `+${standardDigits}` : phone
+          const resolvedWaId = wa_id ? normalizePhone(wa_id) : (standardDigits || undefined)
+
+          return {
+            phone: formattedPhone,
+            type: type?.trim() || 'WORK',
+            ...(resolvedWaId ? { wa_id: resolvedWaId } : {}),
+          }
+        }),
+      }
+    }),
   }
 }
 
