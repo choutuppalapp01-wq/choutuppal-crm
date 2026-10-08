@@ -15,6 +15,8 @@ const h = vi.hoisted(() => ({
     activeRuns: [] as unknown[],
     flows: [] as unknown[],
     nodes: [] as unknown[],
+    categories: [] as unknown[],
+    listings: [] as unknown[],
     inserted: [] as { table: string; row: Record<string, unknown> }[],
     updated: [] as { table: string; patch: Record<string, unknown> }[],
     /** Set by the flow_runs INSERT; what its .maybeSingle() returns. */
@@ -28,6 +30,8 @@ vi.mock("./admin-client", () => {
     if (table === "flow_runs") return h.state.activeRuns;
     if (table === "flows") return h.state.flows;
     if (table === "flow_nodes") return h.state.nodes;
+    if (table === "categories") return h.state.categories;
+    if (table === "business_listings") return h.state.listings;
     return [];
   }
 
@@ -89,6 +93,7 @@ const engineSendText = vi.fn(async () => ({ whatsapp_message_id: "wamid.1" }));
 const engineSendContact = vi.fn(async () => ({ whatsapp_message_id: "wamid.CONTACT" }));
 const engineSendMedia = vi.fn(async () => ({ whatsapp_message_id: "wamid.MEDIA" }));
 const engineSendInteractiveButtons = vi.fn(async () => ({ whatsapp_message_id: "wamid.BUTTONS" }));
+const engineSendInteractiveList = vi.fn(async () => ({ whatsapp_message_id: "wamid.LIST" }));
 
 vi.mock("./meta-send", () => ({
   engineSendContact: (...a: unknown[]) =>
@@ -97,7 +102,8 @@ vi.mock("./meta-send", () => ({
     (engineSendMedia as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendInteractiveButtons: (...a: unknown[]) =>
     (engineSendInteractiveButtons as unknown as (...x: unknown[]) => unknown)(...a),
-  engineSendInteractiveList: vi.fn(async () => ({ whatsapp_message_id: "wamid.LIST" })),
+  engineSendInteractiveList: (...a: unknown[]) =>
+    (engineSendInteractiveList as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendText: (...a: unknown[]) =>
     (engineSendText as unknown as (...x: unknown[]) => unknown)(...a),
 }));
@@ -161,6 +167,8 @@ beforeEach(() => {
   h.state.activeRuns = [];
   h.state.flows = [];
   h.state.nodes = NODES;
+  h.state.categories = [];
+  h.state.listings = [];
   h.state.inserted = [];
   h.state.updated = [];
   h.state.insertedRun = null;
@@ -169,6 +177,7 @@ beforeEach(() => {
   engineSendContact.mockClear();
   engineSendMedia.mockClear();
   engineSendInteractiveButtons.mockClear();
+  engineSendInteractiveList.mockClear();
 });
 
 describe("entryTriggerTexts", () => {
@@ -589,5 +598,328 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
     // Active run was advanced, NOT restarted or hijacked into real estate flow
     expect(result.flow_run_id).toBe("active-run-99");
     expect(startedRuns()).toHaveLength(0);
+  });
+
+  describe("Dynamic Directory Navigation — handleReplyForActiveRun Regression Tests (Phase 2F)", () => {
+    const sampleCategories = [
+      {
+        id: "cat-1",
+        slug: "automobile",
+        name_en: "Automobile",
+        name_te: "ఆటోమొబైల్",
+        display_order: 1,
+        account_id: "acct-1",
+        is_active: true,
+      },
+      {
+        id: "cat-2",
+        slug: "services",
+        name_en: "Services",
+        name_te: "సర్వీసెస్",
+        display_order: 2,
+        account_id: "acct-1",
+        is_active: true,
+      },
+    ];
+
+    const sampleListings = [
+      {
+        id: "biz-1",
+        name: "S.S. Auto Electrical Works",
+        category_slug: "automobile",
+        phone: "9885374861",
+        whatsapp_phone: "9885374861",
+        status: "published",
+        account_id: "acct-1",
+        is_verified: true,
+        is_premium: false,
+        metadata: { listing_id: "CPL-BIZ-001" },
+      },
+    ];
+
+    it("1. route_business + opt_browse_directory triggers directory category list instead of repeating route_business", async () => {
+      h.state.categories = sampleCategories;
+      h.state.activeRuns = [
+        {
+          id: "active-run-route-biz",
+          flow_id: "flow-welcome",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "route_business",
+          vars: {},
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-route-biz",
+          flow_id: "flow-welcome",
+          node_key: "route_business",
+          node_type: "send_list",
+          config: {
+            text: "🏪 *చౌటుప్పల్ వ్యాపార సేవలు*",
+            button_label: "సేవలు చూడండి",
+            sections: [
+              {
+                title: "వ్యాపార సేవలు",
+                rows: [
+                  {
+                    reply_id: "opt_business_listing",
+                    title: "📇 Business Listing",
+                    next_node_key: "resp_business_listing",
+                  },
+                  {
+                    reply_id: "opt_browse_directory",
+                    title: "🔎 Browse Businesses",
+                    next_node_key: "route_business", // In flow_nodes this pointed to itself!
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ];
+
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "opt_browse_directory",
+        reply_title: "🔎 Browse Businesses",
+        meta_message_id: "m-browse-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.flow_run_id).toBe("active-run-route-biz");
+      expect(result.outcome).toBe("advanced");
+      // Verifies directory category list was sent rather than route_business menu
+      expect(engineSendInteractiveList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("చౌటుప్పల్ లోకల్ బిజినెస్ డైరెక్టరీ"),
+          buttonLabel: "కేటగిరీలు చూడండి",
+        }),
+      );
+      // Verifies directory vars were initialized
+      expect(h.state.updated).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            table: "flow_runs",
+            patch: expect.objectContaining({
+              vars: expect.objectContaining({
+                dir_mode: true,
+                dir_cat_page: 1,
+              }),
+            }),
+          }),
+        ]),
+      );
+    });
+
+    it("2. biz_menu + opt_browse_directory triggers directory category list instead of repeating biz_menu", async () => {
+      h.state.categories = sampleCategories;
+      h.state.activeRuns = [
+        {
+          id: "active-run-biz-menu",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: {},
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: {
+            text: "🏪 *చౌటుప్పల్ వ్యాపార సేవలు*",
+            button_label: "సేవలు చూడండి",
+            sections: [
+              {
+                title: "వ్యాపార సేవలు",
+                rows: [
+                  {
+                    reply_id: "opt_business_listing",
+                    title: "📇 Business Listing",
+                    next_node_key: "resp_business_listing",
+                  },
+                  {
+                    reply_id: "opt_browse_directory",
+                    title: "🔎 Browse Businesses",
+                    next_node_key: "biz_menu", // In flow_nodes this pointed to itself!
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ];
+
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "opt_browse_directory",
+        reply_title: "🔎 Browse Businesses",
+        meta_message_id: "m-browse-2",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.flow_run_id).toBe("active-run-biz-menu");
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("చౌటుప్పల్ లోకల్ బిజినెస్ డైరెక్టరీ"),
+          buttonLabel: "కేటగిరీలు చూడండి",
+        }),
+      );
+    });
+
+    it("3. Existing dir_* navigation continues working (select category and back to biz menu)", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-dir-nav",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_cat_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      const bizMenuNode = {
+        id: "node-biz-menu",
+        flow_id: "flow-biz",
+        node_key: "biz_menu",
+        node_type: "send_list",
+        config: {
+          text: "🏪 *చౌటుప్పల్ వ్యాపార సేవలు*",
+          button_label: "సేవలు చూడండి",
+          sections: [{ title: "వ్యాపార సేవలు", rows: [] }],
+        },
+      };
+      h.state.nodes = [bizMenuNode];
+
+      // 3a: Select category dir_cat_automobile
+      const resultCat = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_cat_automobile",
+        reply_title: "Automobile",
+        meta_message_id: "m-cat-auto",
+      });
+      expect(resultCat.consumed).toBe(true);
+      expect(resultCat.outcome).toBe("advanced");
+      expect(engineSendInteractiveList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buttonLabel: "షాపులు చూడండి",
+        }),
+      );
+
+      // 3b: Click dir_back_biz_menu
+      engineSendInteractiveList.mockClear();
+      const resultBack = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_back_biz_menu",
+        reply_title: "🔙 Back to Menu",
+        meta_message_id: "m-back-menu",
+      });
+      expect(resultBack.consumed).toBe(true);
+      expect(resultBack.outcome).toBe("advanced");
+      // Returned to biz_menu send_list
+      expect(engineSendInteractiveList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: "🏪 *చౌటుప్పల్ వ్యాపార సేవలు*",
+        }),
+      );
+    });
+
+    it("4. Normal opt_business_listing routing remains unchanged and advances to resp_business_listing", async () => {
+      h.state.activeRuns = [
+        {
+          id: "active-run-normal",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: {},
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: {
+            text: "🏪 *చౌటుప్పల్ వ్యాపార సేవలు*",
+            button_label: "సేవలు చూడండి",
+            sections: [
+              {
+                title: "వ్యాపార సేవలు",
+                rows: [
+                  {
+                    reply_id: "opt_business_listing",
+                    title: "📇 Business Listing",
+                    next_node_key: "resp_business_listing",
+                  },
+                  {
+                    reply_id: "opt_browse_directory",
+                    title: "🔎 Browse Businesses",
+                    next_node_key: "biz_menu",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+        {
+          id: "node-resp-listing",
+          flow_id: "flow-biz",
+          node_key: "resp_business_listing",
+          node_type: "send_message",
+          config: {
+            text: "కొత్త షాప్ నమోదు వివరాలు",
+            next_node_key: "done",
+          },
+        },
+        {
+          id: "node-done",
+          flow_id: "flow-biz",
+          node_key: "done",
+          node_type: "end",
+          config: {},
+        },
+      ];
+
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "opt_business_listing",
+        reply_title: "📇 Business Listing",
+        meta_message_id: "m-listing-normal",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.flow_run_id).toBe("active-run-normal");
+      expect(result.outcome).toBe("completed");
+      expect(engineSendText).toHaveBeenCalledWith(
+        expect.objectContaining({
+          text: "కొత్త షాప్ నమోదు వివరాలు",
+        }),
+      );
+    });
   });
 });

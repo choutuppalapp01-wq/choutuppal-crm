@@ -1081,77 +1081,13 @@ async function handleReplyForActiveRun(
     return { consumed: true, flow_run_id: run.id, outcome: "no_match" };
   }
 
-  // Two ways a reply can advance:
-  //   1. Interactive button/list tap on a send_buttons/send_list node.
-  //   2. Text reply on a collect_input node — capture into vars.
-  //
-  // Everything else falls through to the fallback policy below.
-  let matched: string | null = null;
-  if (
-    message.kind === "interactive_reply" &&
-    (currentNode.node_type === "send_buttons" ||
-      currentNode.node_type === "send_list")
-  ) {
-    matched = matchReplyId(currentNode, message.reply_id);
-  } else if (
-    message.kind === "text" &&
-    currentNode.node_type === "collect_input"
-  ) {
-    const cfg = currentNode.config as unknown as CollectInputNodeConfig;
-    const captured = message.text.trim();
-    if (captured.length > 0 && cfg.var_key) {
-      // Persist captured value + reset reprompt count atomically.
-      const newVars = { ...run.vars, [cfg.var_key]: captured };
-      const { error: capErr } = await db
-        .from("flow_runs")
-        .update({
-          vars: newVars,
-          reprompt_count: 0,
-        })
-        .eq("id", run.id);
-      if (!capErr) {
-        // Mirror the UPDATE in-memory so downstream interpolation in
-        // the advance loop sees the captured var without us having to
-        // re-SELECT the whole row.
-        run.vars = newVars;
-        run.reprompt_count = 0;
-        await logEvent(db, run.id, "node_entered", currentNode.node_key, {
-          captured_key: cfg.var_key,
-          captured_length: captured.length,
-        });
-        matched = cfg.next_node_key;
-      }
-    }
-  }
-
-  if (matched) {
-    // Reset reprompt count on a successful match. Skip the write when
-    // already 0 — the collect_input capture branch above already
-    // zeroed it, and interactive-reply matches against a fresh run
-    // (post-prior-reset) are also already 0. The previous re-read of
-    // the whole row was needed only because we weren't mirroring the
-    // capture UPDATE into the in-memory `run`; now that we do, the
-    // local copy is the source of truth.
-    if (run.reprompt_count !== 0) {
-      const { error } = await db
-        .from("flow_runs")
-        .update({ reprompt_count: 0 })
-        .eq("id", run.id);
-      if (!error) run.reprompt_count = 0;
-    }
-    const outcome = await advanceFromNodeKey(db, run, matched, nodes);
-    return {
-      consumed: true,
-      flow_run_id: run.id,
-      outcome: outcome.outcome,
-    };
-  }
-
   // ============================================================
   // Dynamic Local Directory Navigation Handlers
   // Intercepts directory requests (opt_browse_directory or dir_*)
   // Reads ONLY from business_listings and categories in CRM DB.
   // Self-service: No agent handoff.
+  // Evaluated BEFORE matchReplyId so directory intents are never
+  // swallowed by static fallback transitions on biz_menu/route_business.
   // ============================================================
   if (message.kind === "interactive_reply" && (message.reply_id === "opt_browse_directory" || message.reply_id.startsWith("dir_"))) {
     const replyId = message.reply_id;
@@ -1316,6 +1252,72 @@ async function handleReplyForActiveRun(
         return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
       }
     }
+  }
+
+  // Two ways a reply can advance:
+  //   1. Interactive button/list tap on a send_buttons/send_list node.
+  //   2. Text reply on a collect_input node — capture into vars.
+  //
+  // Everything else falls through to the fallback policy below.
+  let matched: string | null = null;
+  if (
+    message.kind === "interactive_reply" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    matched = matchReplyId(currentNode, message.reply_id);
+  } else if (
+    message.kind === "text" &&
+    currentNode.node_type === "collect_input"
+  ) {
+    const cfg = currentNode.config as unknown as CollectInputNodeConfig;
+    const captured = message.text.trim();
+    if (captured.length > 0 && cfg.var_key) {
+      // Persist captured value + reset reprompt count atomically.
+      const newVars = { ...run.vars, [cfg.var_key]: captured };
+      const { error: capErr } = await db
+        .from("flow_runs")
+        .update({
+          vars: newVars,
+          reprompt_count: 0,
+        })
+        .eq("id", run.id);
+      if (!capErr) {
+        // Mirror the UPDATE in-memory so downstream interpolation in
+        // the advance loop sees the captured var without us having to
+        // re-SELECT the whole row.
+        run.vars = newVars;
+        run.reprompt_count = 0;
+        await logEvent(db, run.id, "node_entered", currentNode.node_key, {
+          captured_key: cfg.var_key,
+          captured_length: captured.length,
+        });
+        matched = cfg.next_node_key;
+      }
+    }
+  }
+
+  if (matched) {
+    // Reset reprompt count on a successful match. Skip the write when
+    // already 0 — the collect_input capture branch above already
+    // zeroed it, and interactive-reply matches against a fresh run
+    // (post-prior-reset) are also already 0. The previous re-read of
+    // the whole row was needed only because we weren't mirroring the
+    // capture UPDATE into the in-memory `run`; now that we do, the
+    // local copy is the source of truth.
+    if (run.reprompt_count !== 0) {
+      const { error } = await db
+        .from("flow_runs")
+        .update({ reprompt_count: 0 })
+        .eq("id", run.id);
+      if (!error) run.reprompt_count = 0;
+    }
+    const outcome = await advanceFromNodeKey(db, run, matched, nodes);
+    return {
+      consumed: true,
+      flow_run_id: run.id,
+      outcome: outcome.outcome,
+    };
   }
 
   // No match → fallback. Apply the policy.
