@@ -971,18 +971,17 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
         expect.objectContaining({
           bodyText: expect.stringContaining("S.S. Auto Electrical Works"),
           buttons: [
-            { id: "dir_call_CPL-BIZ-001", title: "📞 Call Now" },
-            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
-            { id: "dir_listpage_automobile_1", title: "🔙 Back" },
+            { id: "dir_listpage_automobile_2", title: "తర్వాతి షాపులు ➡️" },
+            { id: "dir_listpage_automobile_1", title: "🔙 వెనుకకు" },
+            { id: "dir_browse", title: "📁 కేటగిరీలు" },
           ],
         }),
       );
       const detailsBody = ((engineSendInteractiveButtons.mock.calls as any)[0][0] as any).bodyText;
       expect(detailsBody).toContain("🏪 *_S.S. Auto Electrical Works_*");
+      expect(detailsBody).toContain("📞 *ఫోన్:*");
       expect(detailsBody).not.toContain("Category:");
       expect(detailsBody).not.toContain("Subcategory:");
-      expect(detailsBody).not.toContain("Phone:");
-      expect(detailsBody).not.toContain("WhatsApp:");
       expect(detailsBody).not.toContain("wa.me");
       expect(detailsBody).not.toContain("Contact: 9885374861");
 

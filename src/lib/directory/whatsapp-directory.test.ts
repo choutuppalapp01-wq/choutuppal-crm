@@ -171,9 +171,8 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(details).not.toContain('ఇంజనీరింగ్ & వెల్డింగ్');
     expect(details).not.toContain('Engineering & Welding');
 
-    // 4. Separate phone and WhatsApp lines absence
-    expect(details).not.toContain('Phone:');
-    expect(details).not.toContain('WhatsApp:');
+    // 4. Contact phone number directly rendered in card for tap-to-call
+    expect(details).toContain('📞 *ఫోన్:* +91 97016 01613');
 
     // 5. Raw wa.me URL absence in visible details
     expect(details).not.toContain('wa.me');
@@ -181,27 +180,24 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     // 6. Synthetic contact suffix removal without damaging legitimate text
     expect(details).not.toContain('Contact: 9701601613');
 
-    // 7. Genuine services displayed as bullets
-    expect(details).toContain('*Services*');
-    expect(details).toContain('• ఆర్క్ వెల్డింగ్');
-    expect(details).toContain('• షట్టర్ తయారీ');
+    // 7. Services section deferred in simplified Phase 3 flow
+    expect(details).not.toContain('*Services*');
 
-    // 9. Address shown only when available
-    expect(details).toContain('📍 *Address*\nగాంధీ చౌక్, చౌటుప్పల్');
+    // 8. Address shown only when available
+    expect(details).toContain('📍 *చిరునామా:*\nగాంధీ చౌక్, చౌటుప్పల్');
 
     // Defensive check
     expect(details).not.toContain('undefined');
     expect(details).not.toContain('null');
   });
 
-  it('renders services as bullet points only when actual services exist, suppresses when empty', () => {
-    // Listing with empty services
-    const listingNoServices: DirectoryListing = {
-      id: 'uuid-noservices',
+  it('renders direct phone number cleanly and suppresses when absent', () => {
+    const listingNoPhone: DirectoryListing = {
+      id: 'uuid-nophone',
       name: 'రహీమ్ వెల్డింగ్ వర్క్స్',
       category_slug: 'engineering-welding',
-      phone: '9640201084',
-      whatsapp_phone: '9640201084',
+      phone: '',
+      whatsapp_phone: '',
       city: 'Choutuppal',
       services: [],
       business_hours: {},
@@ -211,20 +207,15 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       metadata: { listing_id: 'CPL-BIZ-048' },
     };
 
-    const detailsNoServices = formatListingDetailsText(listingNoServices);
-    // 8. Services section omitted when genuine services are missing
-    expect(detailsNoServices).not.toContain('Services');
-    expect(detailsNoServices).not.toContain('•');
+    const detailsNoPhone = formatListingDetailsText(listingNoPhone);
+    expect(detailsNoPhone).not.toContain('📞 *ఫోన్:*');
 
-    // Listing with actual services
-    const listingWithServices: DirectoryListing = {
-      ...listingNoServices,
-      services: ['CCTV సెక్యూరిటీ సిస్టమ్స్', 'ఇన్వర్టర్ & బ్యాటరీ సేల్స్'],
+    const listingWithPhone: DirectoryListing = {
+      ...listingNoPhone,
+      phone: '9640201084',
     };
-    const detailsWithServices = formatListingDetailsText(listingWithServices);
-    expect(detailsWithServices).toContain('*Services*');
-    expect(detailsWithServices).toContain('• CCTV సెక్యూరిటీ సిస్టమ్స్');
-    expect(detailsWithServices).toContain('• ఇన్వర్టర్ & బ్యాటరీ సేల్స్');
+    const detailsWithPhone = formatListingDetailsText(listingWithPhone);
+    expect(detailsWithPhone).toContain('📞 *ఫోన్:* +91 96402 01084');
   });
 
   it('shows address only when available and suppresses when empty', () => {
@@ -246,7 +237,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     };
 
     const detailsNoAddr = formatListingDetailsText(listingNoAddr);
-    expect(detailsNoAddr).not.toContain('Address');
+    expect(detailsNoAddr).not.toContain('చిరునామా');
     expect(detailsNoAddr).not.toContain('📍');
 
     const listingWithArea: DirectoryListing = {
@@ -254,7 +245,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       area: 'హైవే జంక్షన్, చౌటుప్పల్',
     };
     const detailsWithArea = formatListingDetailsText(listingWithArea);
-    expect(detailsWithArea).toContain('📍 *Address*\nహైవే జంక్షన్, చౌటుప్పల్');
+    expect(detailsWithArea).toContain('📍 *చిరునామా:*\nహైవే జంక్షన్, చౌటుప్పల్');
   });
 
   it('builds WhatsApp prefilled Telugu message with Choutuppal App branding and genuine services', () => {
@@ -291,7 +282,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(prefillUrl).toContain(encodeURIComponent('🏪 వ్యాపారం: లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్'));
   });
 
-  it('builds listing details navigation with exactly 3 buttons (Call Now, WhatsApp, Back)', () => {
+  it('builds listing details navigation with simplified buttons (Next Shops, Back, Categories)', () => {
     const listing: DirectoryListing = {
       id: 'uuid-1',
       name: 'Test Shop',
@@ -313,15 +304,11 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       listingPage: 2,
     });
 
-    // Exactly 3 reply buttons: [📞 Call Now], [💬 WhatsApp], [🔙 Back]
+    // Exactly 3 reply buttons: [తర్వాతి షాపులు ➡️], [🔙 వెనుకకు], [📁 కేటగిరీలు]
     expect(actions.buttons.length).toBe(3);
-    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-001', title: '📞 Call Now' });
-    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-001', title: '💬 WhatsApp' });
-    expect(actions.buttons[2]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
-
-    // Excludes All Categories and Business Menu from details buttons
-    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(false);
-    expect(actions.buttons.some((b) => b.id === 'dir_back_biz_menu')).toBe(false);
+    expect(actions.buttons[0]).toEqual({ id: 'dir_listpage_automobile_3', title: 'తర్వాతి షాపులు ➡️' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 వెనుకకు' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_browse', title: '📁 కేటగిరీలు' });
 
     for (const btn of actions.buttons) {
       expect(btn.title.length).toBeLessThanOrEqual(20);
@@ -330,12 +317,12 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
 
     // List fallback rows
     expect(actions.sections[0].rows.length).toBe(3);
-    expect(actions.sections[0].rows[0].id).toBe('dir_call_CPL-BIZ-001');
-    expect(actions.sections[0].rows[1].id).toBe('dir_wa_CPL-BIZ-001');
-    expect(actions.sections[0].rows[2].id).toBe('dir_listpage_automobile_2');
+    expect(actions.sections[0].rows[0].id).toBe('dir_listpage_automobile_3');
+    expect(actions.sections[0].rows[1].id).toBe('dir_listpage_automobile_2');
+    expect(actions.sections[0].rows[2].id).toBe('dir_browse');
   });
 
-  it('handles uncategorized category by providing dir_browse as Back button', () => {
+  it('handles uncategorized category by providing dir_browse for navigation', () => {
     const listing: DirectoryListing = {
       id: 'uuid-uncat',
       name: 'Uncategorized Shop',
@@ -358,21 +345,21 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     });
 
     expect(actions.buttons.length).toBe(3);
-    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-099', title: '📞 Call Now' });
-    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-099', title: '💬 WhatsApp' });
-    expect(actions.buttons[2]).toEqual({ id: 'dir_browse', title: '🔙 Back' });
+    expect(actions.buttons[0]).toEqual({ id: 'dir_browse', title: 'తర్వాతి షాపులు ➡️' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_browse', title: '🔙 వెనుకకు' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_browse', title: '📁 కేటగిరీలు' });
   });
 
-  it('queries database with status in (active, published) filter and excludes pending records', async () => {
+  it('queries database with status = published filter and excludes pending records', async () => {
     // Mock db client
     const mockDb = {
       from: (table: string) => ({
         select: () => ({
           eq: (col1: string, val1: any) => ({
-            in: (col2: string, val2: any[]) => ({
+            eq: (col2: string, val2: any) => ({
               eq: (col3: string, val3: any) => {
-                if (val2.includes('published') || val2.includes('active')) {
-                  return { data: [{ id: '1', name: 'Active Listing', status: 'published', is_premium: false, is_verified: false, metadata: { listing_id: 'CPL-BIZ-001' } }], error: null };
+                if (col2 === 'status' && val2 === 'published') {
+                  return { data: [{ id: '1', name: 'Published Listing', status: 'published', is_premium: false, is_verified: false, metadata: { listing_id: 'CPL-BIZ-001' } }], error: null };
                 }
                 return { data: [], error: null };
               },
@@ -384,6 +371,170 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
 
     const listings = await getActiveListingsByCategory(mockDb, 'acc-1', 'automobile');
     expect(listings.length).toBe(1);
-    expect(listings[0].name).toBe('Active Listing');
+    expect(listings[0].name).toBe('Published Listing');
+  });
+
+  describe('getListingById — Security & Status Access Control', () => {
+    function createMockDb(records: Array<{
+      id: string;
+      slug: string;
+      name: string;
+      status: string;
+      account_id: string;
+      metadata: Record<string, unknown>;
+    }>) {
+      return {
+        from: (table: string) => {
+          if (table !== 'business_listings') {
+            return { select: () => ({ error: 'Unknown table' }) };
+          }
+          return {
+            select: () => {
+              let filterAcc: string | null = null;
+              let filterStatus: string | null = null;
+              let filterMetaId: string | null = null;
+              let filterSlug: string | null = null;
+
+              const builder = {
+                eq: (col: string, val: any) => {
+                  if (col === 'account_id') filterAcc = String(val);
+                  if (col === 'slug') filterSlug = String(val);
+                  if (col === 'status') filterStatus = String(val);
+                  return builder;
+                },
+                filter: (col: string, op: string, val: any) => {
+                  if (col === 'metadata->>listing_id' && op === 'eq') {
+                    filterMetaId = String(val);
+                  }
+                  return builder;
+                },
+                maybeSingle: async () => {
+                  const match = records.find((r) => {
+                    if (filterAcc && r.account_id !== filterAcc) return false;
+                    if (filterStatus && r.status !== filterStatus) return false;
+                    if (filterMetaId && r.metadata?.listing_id !== filterMetaId) return false;
+                    if (filterSlug && r.slug !== filterSlug) return false;
+                    return true;
+                  });
+                  return { data: match || null, error: null };
+                },
+              };
+              return builder;
+            },
+          };
+        },
+      };
+    }
+
+    const testRecords = [
+      {
+        id: 'rec-pub',
+        slug: 'sri-sai-electricals',
+        name: 'Sri Sai Electricals',
+        status: 'published',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-001' },
+      },
+      {
+        id: 'rec-act',
+        slug: 'active-kirana-store',
+        name: 'Active Kirana Store',
+        status: 'active',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-002' },
+      },
+      {
+        id: 'rec-pen',
+        slug: 'pending-auto-works',
+        name: 'Pending Auto Works',
+        status: 'pending',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-003' },
+      },
+      {
+        id: 'rec-dft',
+        slug: 'draft-sweet-house',
+        name: 'Draft Sweet House',
+        status: 'draft',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-004' },
+      },
+      {
+        id: 'rec-sus',
+        slug: 'suspended-medical-hall',
+        name: 'Suspended Medical Hall',
+        status: 'suspended',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-005' },
+      },
+      {
+        id: 'rec-arc',
+        slug: 'archived-cloth-store',
+        name: 'Archived Cloth Store',
+        status: 'archived',
+        account_id: 'acc-1',
+        metadata: { listing_id: 'CPL-BIZ-006' },
+      },
+    ];
+
+    it('allows access to published listings by listing_id and by slug', async () => {
+      const mockDb = createMockDb(testRecords);
+      // By metadata listing_id
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-001');
+      expect(resById).not.toBeNull();
+      expect(resById?.name).toBe('Sri Sai Electricals');
+      expect(resById?.status).toBe('published');
+
+      // By slug fallback
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'sri-sai-electricals');
+      expect(resBySlug).not.toBeNull();
+      expect(resBySlug?.name).toBe('Sri Sai Electricals');
+    });
+
+    it('blocks active listings because canonical business_listings publication status is published', async () => {
+      const mockDb = createMockDb(testRecords);
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-002');
+      expect(resById).toBeNull();
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'active-kirana-store');
+      expect(resBySlug).toBeNull();
+    });
+
+    it('blocks pending listings from direct ID lookup', async () => {
+      const mockDb = createMockDb(testRecords);
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-003');
+      expect(resById).toBeNull();
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'pending-auto-works');
+      expect(resBySlug).toBeNull();
+    });
+
+    it('blocks draft listings from direct ID lookup', async () => {
+      const mockDb = createMockDb(testRecords);
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-004');
+      expect(resById).toBeNull();
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'draft-sweet-house');
+      expect(resBySlug).toBeNull();
+    });
+
+    it('blocks suspended listings from direct ID lookup', async () => {
+      const mockDb = createMockDb(testRecords);
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-005');
+      expect(resById).toBeNull();
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'suspended-medical-hall');
+      expect(resBySlug).toBeNull();
+    });
+
+    it('blocks archived listings from direct ID lookup', async () => {
+      const mockDb = createMockDb(testRecords);
+      const resById = await getListingById(mockDb, 'acc-1', 'CPL-BIZ-006');
+      expect(resById).toBeNull();
+      const resBySlug = await getListingById(mockDb, 'acc-1', 'archived-cloth-store');
+      expect(resBySlug).toBeNull();
+    });
+
+    it('enforces account isolation so another account cannot view published listings', async () => {
+      const mockDb = createMockDb(testRecords);
+      const res = await getListingById(mockDb, 'wrong-account', 'CPL-BIZ-001');
+      expect(res).toBeNull();
+    });
   });
 });

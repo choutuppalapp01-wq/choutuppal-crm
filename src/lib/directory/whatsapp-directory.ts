@@ -6,7 +6,7 @@
  *
  * Rules:
  * - Reads ONLY from `business_listings` and `categories` in Supabase CRM DB.
- * - Visibility filter: status = 'active' (zero 'pending' listings exposed).
+ * - Visibility filter: status = 'published' (zero 'pending' listings exposed).
  * - Enforces WhatsApp limits (max 10 rows in list, titles <= 24 chars, descriptions <= 72 chars).
  * - Session tracking via flow run variables (vars.dir_*).
  * - Self-service: No agent handoff triggered during directory browsing.
@@ -197,8 +197,8 @@ export function buildCategoryListPayload(args: {
 }
 
 /**
- * Loads public, active listings for a category with deterministic ranking.
- * Visibility rule: status = 'active'
+ * Loads public, published listings for a category with deterministic ranking.
+ * Visibility rule: status = 'published'
  * Ranking order:
  * 1. is_premium DESC
  * 2. is_verified DESC
@@ -215,7 +215,7 @@ export async function getActiveListingsByCategory(
     .from('business_listings')
     .select('*')
     .eq('account_id', accountId)
-    .in('status', ['active', 'published'])
+    .eq('status', 'published')
     .eq('category_slug', categorySlug);
 
   if (error || !data) {
@@ -321,7 +321,7 @@ export function buildListingListPayload(args: {
   if (hasMore) {
     rows.push({
       id: `dir_listpage_${args.categorySlug}_${currentPage + 1}`,
-      title: '➡️ Next Listings',
+      title: 'తర్వాతి షాపులు ➡️',
       description: `తర్వాతి జాబితా (Page ${currentPage + 1}/${totalPages})`,
     });
   }
@@ -358,6 +358,7 @@ export function buildListingListPayload(args: {
 
 /**
  * Loads a single business listing by its deterministic listing_id (or slug).
+ * Only returns listings with status = 'published'.
  */
 export async function getListingById(
   db: SupabaseClient | any,
@@ -369,6 +370,7 @@ export async function getListingById(
     .from('business_listings')
     .select('*')
     .eq('account_id', accountId)
+    .eq('status', 'published')
     .filter('metadata->>listing_id', 'eq', listingId)
     .maybeSingle();
 
@@ -381,6 +383,7 @@ export async function getListingById(
     .from('business_listings')
     .select('*')
     .eq('account_id', accountId)
+    .eq('status', 'published')
     .eq('slug', listingId.toLowerCase())
     .maybeSingle();
 
@@ -431,20 +434,23 @@ export function formatListingDetailsText(item: DirectoryListing): string {
     parts.push(`📝 ${cleanDesc}`);
   }
 
-  // Services: bullet points from genuine existing service data
-  if (item.services && Array.isArray(item.services) && item.services.length > 0) {
-    const validServices = item.services
-      .map((s) => (typeof s === 'string' ? s.trim() : ''))
-      .filter((s) => s.length > 0);
-    if (validServices.length > 0) {
-      parts.push(`*Services*\n${validServices.map((s) => `• ${s}`).join('\n')}`);
-    }
+  // Contact phone number formatted directly for tap-to-dial
+  const rawPhone = (item.phone || item.whatsapp_phone || '').trim();
+  const digits = normalizePhone(rawPhone);
+  if (digits) {
+    const formatted =
+      digits.length === 10
+        ? `+91 ${digits.slice(0, 5)} ${digits.slice(5)}`
+        : digits.startsWith('91') && digits.length === 12
+        ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}`
+        : `+${digits}`;
+    parts.push(`📞 *ఫోన్:* ${formatted}`);
   }
 
   // Address: show only when genuine address data is available
   const addressStr = (item.address || '').trim() || (item.area || '').trim();
   if (addressStr) {
-    parts.push(`📍 *Address*\n${addressStr}`);
+    parts.push(`📍 *చిరునామా:*\n${addressStr}`);
   }
 
   return parts.join('\n\n');
@@ -502,10 +508,10 @@ export function buildWhatsAppPrefillUrl(item: DirectoryListing): string {
 
 /**
  * Builds the interactive action navigation for a listing details view.
- * Produces exactly 3 interactive reply buttons:
- * - 📞 Call Now
- * - 💬 WhatsApp
- * - 🔙 Back
+ * Produces simplified navigation reply buttons:
+ * - తర్వాతి షాపులు ➡️
+ * - 🔙 వెనుకకు
+ * - 📁 కేటగిరీలు
  */
 export function buildListingDetailsActions(args: {
   listing: DirectoryListing;
@@ -522,40 +528,44 @@ export function buildListingDetailsActions(args: {
   // Enforce Meta's 1024-char body limit
   const detailsText = truncate(rawDetails, 1024);
 
-  const listingId = listing.metadata?.listing_id || listing.slug || listing.id;
   const curPage = listingPage || 1;
   const catSlug =
     categorySlug && categorySlug !== 'uncategorized'
       ? categorySlug
       : (listing.category_slug || 'uncategorized');
 
+  const nextPageId =
+    catSlug && catSlug !== 'uncategorized'
+      ? `dir_listpage_${catSlug}_${curPage + 1}`
+      : 'dir_browse';
+
   const backId =
     catSlug && catSlug !== 'uncategorized'
       ? `dir_listpage_${catSlug}_${curPage}`
       : 'dir_browse';
 
-  // Exactly 3 buttons: [📞 Call Now], [💬 WhatsApp], [🔙 Back]
+  // Simplified navigation: [తర్వాతి షాపులు ➡️], [🔙 వెనుకకు], [📁 కేటగిరీలు]
   const buttons: InteractiveButton[] = [
-    { id: `dir_call_${listingId}`, title: '📞 Call Now' },
-    { id: `dir_wa_${listingId}`, title: '💬 WhatsApp' },
-    { id: backId, title: '🔙 Back' },
+    { id: nextPageId, title: 'తర్వాతి షాపులు ➡️' },
+    { id: backId, title: '🔙 వెనుకకు' },
+    { id: 'dir_browse', title: '📁 కేటగిరీలు' },
   ];
 
   const rows: InteractiveListRow[] = [
     {
-      id: `dir_call_${listingId}`,
-      title: '📞 Call Now',
-      description: 'వ్యాపారానికి కాల్ చేయండి',
-    },
-    {
-      id: `dir_wa_${listingId}`,
-      title: '💬 WhatsApp',
-      description: 'WhatsApp మెసేజ్ పంపండి',
+      id: nextPageId,
+      title: 'తర్వాతి షాపులు ➡️',
+      description: 'తర్వాతి షాపుల జాబితా చూడండి',
     },
     {
       id: backId,
-      title: '🔙 Back',
-      description: 'షాపుల జాబితాకు తిరిగి వెళ్ళండి',
+      title: '🔙 వెనుకకు',
+      description: 'మునుపటి జాబితాకు తిరిగి వెళ్ళండి',
+    },
+    {
+      id: 'dir_browse',
+      title: '📁 కేటగిరీలు',
+      description: 'అన్ని కేటగిరీలు చూడండి',
     },
   ];
 
