@@ -4,6 +4,7 @@ import {
   buildContactMessagePayload,
   sendContactMessage,
   sendInteractiveButtons,
+  sendInteractiveCtaUrl,
   sendInteractiveList,
 } from "./meta-api";
 
@@ -405,6 +406,76 @@ describe("sendInteractiveList — validation", () => {
               ],
             },
           ],
+        },
+      },
+    });
+  });
+});
+
+describe("sendInteractiveCtaUrl — validation", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn(neverFetch));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("rejects an empty displayText", async () => {
+    await expect(
+      sendInteractiveCtaUrl({
+        ...BASE_ARGS,
+        displayText: "",
+        url: "https://wa.me/919441348175",
+      }),
+    ).rejects.toThrow(/requires displayText/);
+  });
+
+  it("rejects a non http/https URL (e.g. tel:)", async () => {
+    await expect(
+      sendInteractiveCtaUrl({
+        ...BASE_ARGS,
+        displayText: "Call Now",
+        url: "tel:+919441348175",
+      }),
+    ).rejects.toThrow(/valid http or https url/);
+  });
+
+  it("sends the right cta_url payload shape when valid", async () => {
+    let captured: { body: unknown } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = { body: JSON.parse(String(init.body)) };
+        return new Response(
+          JSON.stringify({ messages: [{ id: "wamid.CTA_URL" }] }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    const result = await sendInteractiveCtaUrl({
+      ...BASE_ARGS,
+      displayText: "Chat on WhatsApp",
+      url: "https://wa.me/919441348175?text=Hello",
+      headerText: "Header",
+      footerText: "Footer",
+    });
+
+    expect(result).toEqual({ messageId: "wamid.CTA_URL" });
+    expect(captured).not.toBeNull();
+    expect(captured!.body).toMatchObject({
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        body: { text: "Body text" },
+        header: { type: "text", text: "Header" },
+        footer: { text: "Footer" },
+        action: {
+          name: "cta_url",
+          parameters: {
+            display_text: "Chat on WhatsApp",
+            url: "https://wa.me/919441348175?text=Hello",
+          },
         },
       },
     });

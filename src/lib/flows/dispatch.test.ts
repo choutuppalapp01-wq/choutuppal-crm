@@ -94,6 +94,7 @@ const engineSendContact = vi.fn(async () => ({ whatsapp_message_id: "wamid.CONTA
 const engineSendMedia = vi.fn(async () => ({ whatsapp_message_id: "wamid.MEDIA" }));
 const engineSendInteractiveButtons = vi.fn(async () => ({ whatsapp_message_id: "wamid.BUTTONS" }));
 const engineSendInteractiveList = vi.fn(async () => ({ whatsapp_message_id: "wamid.LIST" }));
+const engineSendInteractiveCtaUrl = vi.fn(async () => ({ whatsapp_message_id: "wamid.CTA_URL" }));
 
 vi.mock("./meta-send", () => ({
   engineSendContact: (...a: unknown[]) =>
@@ -102,6 +103,8 @@ vi.mock("./meta-send", () => ({
     (engineSendMedia as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendInteractiveButtons: (...a: unknown[]) =>
     (engineSendInteractiveButtons as unknown as (...x: unknown[]) => unknown)(...a),
+  engineSendInteractiveCtaUrl: (...a: unknown[]) =>
+    (engineSendInteractiveCtaUrl as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendInteractiveList: (...a: unknown[]) =>
     (engineSendInteractiveList as unknown as (...x: unknown[]) => unknown)(...a),
   engineSendText: (...a: unknown[]) =>
@@ -178,6 +181,7 @@ beforeEach(() => {
   engineSendMedia.mockClear();
   engineSendInteractiveButtons.mockClear();
   engineSendInteractiveList.mockClear();
+  engineSendInteractiveCtaUrl.mockClear();
 });
 
 describe("entryTriggerTexts", () => {
@@ -922,7 +926,7 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       );
     });
 
-    it("5. dir_item_* renders listing details using interactive reply buttons (Call, WhatsApp, Back)", async () => {
+    it("5. dir_item_* renders listing details using 3 interactive buttons (Call Now, WhatsApp, Back) without auto contact card", async () => {
       h.state.categories = sampleCategories;
       h.state.listings = sampleListings;
       h.state.activeRuns = [
@@ -961,39 +965,32 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
 
-      // 1. Clean listing details message sent first with navigation buttons
+      // 1. Clean listing details message sent with exactly 3 buttons
+      expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
       expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyText: expect.stringContaining("S.S. Auto Electrical Works"),
-          buttons: expect.arrayContaining([
+          buttons: [
+            { id: "dir_call_CPL-BIZ-001", title: "📞 Call Now" },
+            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
             { id: "dir_listpage_automobile_1", title: "🔙 Back" },
-            { id: "dir_browse", title: "📁 All Categories" },
-            { id: "dir_back_biz_menu", title: "🏠 Business Menu" },
-          ]),
+          ],
         }),
       );
       const detailsBody = ((engineSendInteractiveButtons.mock.calls as any)[0][0] as any).bodyText;
+      expect(detailsBody).toContain("🏪 *_S.S. Auto Electrical Works_*");
+      expect(detailsBody).not.toContain("Category:");
+      expect(detailsBody).not.toContain("Subcategory:");
       expect(detailsBody).not.toContain("Phone:");
       expect(detailsBody).not.toContain("WhatsApp:");
       expect(detailsBody).not.toContain("wa.me");
       expect(detailsBody).not.toContain("Contact: 9885374861");
 
-      // 2. Native Contact Card sent immediately afterward
-      expect(engineSendContact).toHaveBeenCalledTimes(1);
-      expect(engineSendContact).toHaveBeenCalledWith(
-        expect.objectContaining({
-          contacts: [
-            expect.objectContaining({
-              name: "S.S. Auto Electrical Works",
-              first_name: "S.S. Auto Electrical Works",
-              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
-            }),
-          ],
-        }),
-      );
+      // 2. NO automatic contact card sent (unwanted save-contact experience prevented)
+      expect(engineSendContact).not.toHaveBeenCalled();
     });
 
-    it("6. dir_call_* sends native contact card and dial confirmation with interactive buttons", async () => {
+    it("6. dir_call_* sends direct dial assistance and navigation buttons without contact card", async () => {
       h.state.categories = sampleCategories;
       h.state.listings = sampleListings;
       h.state.activeRuns = [
@@ -1025,38 +1022,29 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       const result = await dispatch({
         kind: "interactive_reply",
         reply_id: "dir_call_CPL-BIZ-001",
-        reply_title: "📞 Call",
+        reply_title: "📞 Call Now",
         meta_message_id: "m-call-1",
       });
 
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
-      // Verified native WhatsApp contact card was sent
-      expect(engineSendContact).toHaveBeenCalledWith(
-        expect.objectContaining({
-          contacts: [
-            expect.objectContaining({
-              name: "S.S. Auto Electrical Works",
-              first_name: "S.S. Auto Electrical Works",
-              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
-            }),
-          ],
-        }),
-      );
-      // Verified follow-up interactive message with buttons
+
+      // No contact card
+      expect(engineSendContact).not.toHaveBeenCalled();
+
+      // Direct dial assistance with tap-to-call number
       expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
         expect.objectContaining({
-          bodyText: expect.stringContaining("కాంటాక్ట్ కార్డ్ పంపబడింది"),
+          bodyText: expect.stringContaining("+91 98853 74861"),
           buttons: expect.arrayContaining([
-            { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
             { id: "dir_listpage_automobile_1", title: "🔙 Back" },
-            { id: "dir_browse", title: "📁 All Categories" },
+            { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
           ]),
         }),
       );
     });
 
-    it("7. dir_wa_* sends native contact card and interactive navigation buttons", async () => {
+    it("7. dir_wa_* dispatches interactive cta_url message with prefilled Telugu draft", async () => {
       h.state.categories = sampleCategories;
       h.state.listings = sampleListings;
       h.state.activeRuns = [
@@ -1084,7 +1072,7 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       ];
 
       engineSendContact.mockClear();
-      engineSendInteractiveButtons.mockClear();
+      engineSendInteractiveCtaUrl.mockClear();
       const result = await dispatch({
         kind: "interactive_reply",
         reply_id: "dir_wa_CPL-BIZ-001",
@@ -1094,89 +1082,44 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
 
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
-      expect(engineSendContact).toHaveBeenCalledWith(
+
+      // No contact card
+      expect(engineSendContact).not.toHaveBeenCalled();
+
+      // Dispatched interactive CTA URL message
+      expect(engineSendInteractiveCtaUrl).toHaveBeenCalledWith(
         expect.objectContaining({
-          contacts: [
-            expect.objectContaining({
-              name: "S.S. Auto Electrical Works",
-              first_name: "S.S. Auto Electrical Works",
-              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
-            }),
-          ],
+          displayText: "💬 WhatsApp చాట్",
+          url: expect.stringContaining("https://wa.me/919885374861?text="),
+          bodyText: expect.stringContaining("S.S. Auto Electrical Works"),
         }),
       );
-      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bodyText: expect.stringContaining("కాంటాక్ట్ కార్డ్ పంపబడింది"),
-          buttons: expect.arrayContaining([
-            { id: "dir_item_CPL-BIZ-001", title: "📋 Details" },
-            { id: "dir_listpage_automobile_1", title: "🔙 Back" },
-            { id: "dir_browse", title: "📁 All Categories" },
-          ]),
-        }),
-      );
+
+      // Verify Telugu prefilled text includes Choutuppal App branding
+      const sentUrl = ((engineSendInteractiveCtaUrl.mock.calls as any)[0][0] as any).url;
+      expect(sentUrl).toContain(encodeURIComponent("Choutuppal App"));
+      expect(sentUrl).toContain(encodeURIComponent("S.S. Auto Electrical Works"));
     });
 
-    it("8. handles engineSendContact failure gracefully with error logging and technical fallback", async () => {
+    it("8. dir_call_* handles listing with missing phone cleanly", async () => {
       h.state.categories = sampleCategories;
-      h.state.listings = sampleListings;
-      h.state.activeRuns = [
+      h.state.listings = [
         {
-          id: "active-run-err",
-          flow_id: "flow-biz",
+          id: "biz-nophone",
+          name: "No Phone Shop",
+          category_slug: "automobile",
+          phone: "",
+          whatsapp_phone: "",
+          status: "published",
           account_id: "acct-1",
-          user_id: "u-1",
-          contact_id: "ct-1",
-          conversation_id: "cv-1",
-          status: "active",
-          current_node_key: "biz_menu",
-          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
-          reprompt_count: 0,
+          is_verified: false,
+          is_premium: false,
+          metadata: { listing_id: "CPL-BIZ-888" },
         },
       ];
-      h.state.nodes = [
-        {
-          id: "node-biz-menu",
-          flow_id: "flow-biz",
-          node_key: "biz_menu",
-          node_type: "send_list",
-          config: { text: "menu", button_label: "btn", sections: [] },
-        },
-      ];
-
-      engineSendContact.mockRejectedValueOnce(new Error("Meta 400 Param name.first_name is required"));
-      engineSendInteractiveButtons.mockClear();
-
-      const result = await dispatch({
-        kind: "interactive_reply",
-        reply_id: "dir_call_CPL-BIZ-001",
-        reply_title: "📞 Call",
-        meta_message_id: "m-call-err-1",
-      });
-
-      expect(result.consumed).toBe(true);
-      expect(result.outcome).toBe("advanced");
-      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
-        expect.objectContaining({
-          bodyText: expect.stringContaining("సాంకేతిక లోపం ఏర్పడింది"),
-        }),
-      );
-      expect(
-        h.state.inserted.some(
-          (i) =>
-            i.table === "flow_run_events" &&
-            (i.row as any).event_type === "error" &&
-            (i.row as any).payload?.reason === "contact_card_send_failed",
-        ),
-      ).toBe(true);
-    });
-
-    it("9. dir_item_* handles automatic engineSendContact failure gracefully with error logging", async () => {
-      h.state.categories = sampleCategories;
-      h.state.listings = sampleListings;
       h.state.activeRuns = [
         {
-          id: "active-run-item-err",
+          id: "active-run-nophone",
           flow_id: "flow-biz",
           account_id: "acct-1",
           user_id: "u-1",
@@ -1199,26 +1142,77 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       ];
 
       engineSendInteractiveButtons.mockClear();
-      engineSendContact.mockRejectedValueOnce(new Error("Meta rate limit"));
-
       const result = await dispatch({
         kind: "interactive_reply",
-        reply_id: "dir_item_CPL-BIZ-001",
-        reply_title: "S.S. Auto Electrical Works",
-        meta_message_id: "m-item-err-1",
+        reply_id: "dir_call_CPL-BIZ-888",
+        reply_title: "📞 Call Now",
+        meta_message_id: "m-call-nophone-1",
       });
 
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
-      expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
-      expect(
-        h.state.inserted.some(
-          (i) =>
-            i.table === "flow_run_events" &&
-            (i.row as any).event_type === "error" &&
-            (i.row as any).payload?.reason === "contact_card_send_failed",
-        ),
-      ).toBe(true);
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("ఫోన్ నంబర్ అందుబాటులో లేదు"),
+        }),
+      );
+    });
+
+    it("9. dir_wa_* handles listing with missing WhatsApp number cleanly", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = [
+        {
+          id: "biz-nowa",
+          name: "No WA Shop",
+          category_slug: "automobile",
+          phone: "",
+          whatsapp_phone: "",
+          status: "published",
+          account_id: "acct-1",
+          is_verified: false,
+          is_premium: false,
+          metadata: { listing_id: "CPL-BIZ-999" },
+        },
+      ];
+      h.state.activeRuns = [
+        {
+          id: "active-run-nowa",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendInteractiveButtons.mockClear();
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_wa_CPL-BIZ-999",
+        reply_title: "💬 WhatsApp",
+        meta_message_id: "m-wa-nowa-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
+        expect.objectContaining({
+          bodyText: expect.stringContaining("WhatsApp నంబర్ అందుబాటులో లేదు"),
+        }),
+      );
     });
   });
 });

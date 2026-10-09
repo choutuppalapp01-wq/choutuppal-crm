@@ -405,71 +405,107 @@ export function sanitizeDescription(text: string | null | undefined): string {
 }
 
 /**
- * Formats a business listing into a rich WhatsApp text details card.
+ * Formats a business listing into a clean WhatsApp details card.
  * Suppresses empty/null fields cleanly.
- * Does NOT display phone, WhatsApp numbers, raw wa.me URLs, or synthetic contact suffixes.
+ * Format:
+ * 🏪 ***{Business / Service Name}*** (bold + italic: *_..._*)
+ * 📝 {Short description in 1–2 concise lines}
+ * *Services*
+ * • {Genuine service 1}
+ * • {Genuine service 2}
+ * 📍 *Address*
+ * {Business address}
+ *
+ * Does NOT display Category, Subcategory, separate phone lines,
+ * or raw wa.me URLs. Strips synthetic Contact suffixes.
  */
 export function formatListingDetailsText(item: DirectoryListing): string {
   const parts: string[] = [];
-  let badges = '';
-  if (item.is_premium) badges += ' ⭐ [Featured]';
-  if (item.is_verified) badges += ' ✅ [Verified]';
-  parts.push(`🏪 *${item.name}*${badges}`);
 
-  const catEn = item.metadata?.category || item.category_slug;
-  const catTe = item.metadata?.category_te;
-  if (catTe || catEn) {
-    parts.push(`📂 *Category:* ${catTe ? `${catTe} (${catEn})` : catEn}`);
-  }
+  // Business / Service Name: bold + italic
+  parts.push(`🏪 *_${item.name.trim()}_*`);
 
-  const subTe = item.metadata?.subcategory_te;
-  const subEn = item.metadata?.subcategory;
-  if (subTe || subEn) {
-    parts.push(`🏷️ *Subcategory:* ${subTe ? `${subTe} (${subEn})` : subEn}`);
-  }
-
-  if (item.area && item.area.trim()) {
-    parts.push(`📍 *Area:* ${item.area.trim()}`);
-  }
-
-  if (item.address && item.address.trim()) {
-    parts.push(`🏠 *Address:* ${item.address.trim()}`);
-  }
-
-  const rawHours =
-    item.metadata?.business_hours ||
-    item.business_hours?.raw ||
-    (typeof item.business_hours === 'string' ? item.business_hours : '');
-  if (rawHours && String(rawHours).trim()) {
-    parts.push(`🕒 *Timings:* ${String(rawHours).trim()}`);
-  }
-
+  // Short description in 1-2 concise lines, sanitized
   const cleanDesc = sanitizeDescription(item.description);
   if (cleanDesc) {
-    parts.push(`\n📝 *About:*\n${cleanDesc}`);
+    parts.push(`📝 ${cleanDesc}`);
   }
 
-  if (item.services && item.services.length > 0) {
-    const validServices = item.services.filter((s) => s && s.trim());
+  // Services: bullet points from genuine existing service data
+  if (item.services && Array.isArray(item.services) && item.services.length > 0) {
+    const validServices = item.services
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter((s) => s.length > 0);
     if (validServices.length > 0) {
-      parts.push(`\n🛠️ *Services:*\n${validServices.map((s) => `• ${s.trim()}`).join('\n')}`);
+      parts.push(`*Services*\n${validServices.map((s) => `• ${s}`).join('\n')}`);
     }
   }
 
-  if (item.metadata?.maps_url && item.metadata.maps_url.trim()) {
-    parts.push(`\n🗺️ *Location Map:*\n${item.metadata.maps_url.trim()}`);
+  // Address: show only when genuine address data is available
+  const addressStr = (item.address || '').trim() || (item.area || '').trim();
+  if (addressStr) {
+    parts.push(`📍 *Address*\n${addressStr}`);
   }
 
-  return parts.join('\n');
+  return parts.join('\n\n');
+}
+
+/**
+ * Builds the customer-facing prefilled Telugu message draft for WhatsApp chat.
+ * Allows the customer to review and edit before sending.
+ */
+export function buildWhatsAppPrefilledText(item: DirectoryListing): string {
+  const parts: string[] = [
+    'నమస్కారం! 🙏',
+    'నేను Choutuppal App ద్వారా మీ వ్యాపారం గురించి తెలుసుకున్నాను.',
+    `🏪 వ్యాపారం: ${item.name.trim()}`,
+  ];
+
+  const desc = sanitizeDescription(item.description);
+  if (desc) {
+    parts.push(`📝 వివరాలు: ${desc}`);
+  }
+
+  if (item.services && Array.isArray(item.services) && item.services.length > 0) {
+    const validServices = item.services
+      .map((s) => (typeof s === 'string' ? s.trim() : ''))
+      .filter((s) => s.length > 0);
+    if (validServices.length > 0) {
+      parts.push(`*సేవలు:*\n${validServices.map((s) => `• ${s}`).join('\n')}`);
+    }
+  }
+
+  parts.push('దయచేసి మీ సేవల వివరాలు తెలియజేయగలరు.');
+  parts.push('ధన్యవాదాలు!\n🌐 Choutuppal App — మన చౌటుప్పల్, మన వ్యాపారాలు.');
+
+  return parts.join('\n\n');
+}
+
+/**
+ * Prepares the click-to-chat wa.me URL with the prefilled Telugu draft.
+ */
+export function buildWhatsAppPrefillUrl(item: DirectoryListing): string {
+  const phone = (item.whatsapp_phone || item.phone || '').trim();
+  const digits = normalizePhone(phone);
+  if (!digits) return '';
+
+  let standardDigits = digits;
+  if (/^[6-9]\d{9}$/.test(digits)) {
+    standardDigits = `91${digits}`;
+  }
+
+  const prefillText = buildWhatsAppPrefilledText(item);
+  const encodedText = encodeURIComponent(prefillText);
+
+  return `https://wa.me/${standardDigits}?text=${encodedText}`;
 }
 
 /**
  * Builds the interactive action navigation for a listing details view.
- * Produces up to 3 interactive reply buttons for navigation:
- * - 🔙 Back (returns to listings list)
- * - 📁 All Categories
- * - 🏠 Business Menu
- * Also preserves sections for list-based consumers.
+ * Produces exactly 3 interactive reply buttons:
+ * - 📞 Call Now
+ * - 💬 WhatsApp
+ * - 🔙 Back
  */
 export function buildListingDetailsActions(args: {
   listing: DirectoryListing;
@@ -486,57 +522,50 @@ export function buildListingDetailsActions(args: {
   // Enforce Meta's 1024-char body limit
   const detailsText = truncate(rawDetails, 1024);
 
-  const buttons: InteractiveButton[] = [];
-  const addedIds = new Set<string>();
+  const listingId = listing.metadata?.listing_id || listing.slug || listing.id;
+  const curPage = listingPage || 1;
+  const catSlug =
+    categorySlug && categorySlug !== 'uncategorized'
+      ? categorySlug
+      : (listing.category_slug || 'uncategorized');
 
-  const addButton = (id: string, title: string) => {
-    if (buttons.length < 3 && !addedIds.has(id)) {
-      buttons.push({ id, title });
-      addedIds.add(id);
-    }
-  };
+  const backId =
+    catSlug && catSlug !== 'uncategorized'
+      ? `dir_listpage_${catSlug}_${curPage}`
+      : 'dir_browse';
 
-  // 1. Navigation: Back to category listings page if in a category, else All Categories
-  if (categorySlug && categorySlug !== 'uncategorized') {
-    addButton(`dir_listpage_${categorySlug}_${listingPage || 1}`, '🔙 Back');
-  }
+  // Exactly 3 buttons: [📞 Call Now], [💬 WhatsApp], [🔙 Back]
+  const buttons: InteractiveButton[] = [
+    { id: `dir_call_${listingId}`, title: '📞 Call Now' },
+    { id: `dir_wa_${listingId}`, title: '💬 WhatsApp' },
+    { id: backId, title: '🔙 Back' },
+  ];
 
-  // 2. All Categories
-  addButton('dir_browse', '📁 All Categories');
-
-  // 3. Main Business Menu
-  addButton('dir_back_biz_menu', '🏠 Business Menu');
-
-  const rows: InteractiveListRow[] = [];
-
-  // 1. Back to same listings page
-  rows.push({
-    id: `dir_listpage_${categorySlug}_${listingPage || 1}`,
-    title: '🔙 Back to Listings',
-    description: 'షాపుల జాబితాకు తిరిగి వెళ్ళండి',
-  });
-
-  // 2. Back to Categories
-  rows.push({
-    id: 'dir_browse',
-    title: '📁 All Categories',
-    description: 'కేటగిరీల జాబితాకు వెళ్ళండి',
-  });
-
-  // 3. Return to Main Business Menu
-  rows.push({
-    id: 'dir_back_biz_menu',
-    title: '🏠 Business Menu',
-    description: 'ప్రధాన వ్యాపార మెనూకి వెళ్ళండి',
-  });
+  const rows: InteractiveListRow[] = [
+    {
+      id: `dir_call_${listingId}`,
+      title: '📞 Call Now',
+      description: 'వ్యాపారానికి కాల్ చేయండి',
+    },
+    {
+      id: `dir_wa_${listingId}`,
+      title: '💬 WhatsApp',
+      description: 'WhatsApp మెసేజ్ పంపండి',
+    },
+    {
+      id: backId,
+      title: '🔙 Back',
+      description: 'షాపుల జాబితాకు తిరిగి వెళ్ళండి',
+    },
+  ];
 
   return {
     bodyText: detailsText,
     buttons,
-    buttonLabel: 'మెనూ ఎంపికలు',
+    buttonLabel: 'ఎంపికలు',
     sections: [
       {
-        title: 'నావిగేషన్',
+        title: 'చర్యలు',
         rows,
       },
     ],

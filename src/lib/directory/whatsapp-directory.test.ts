@@ -8,6 +8,8 @@ import {
   buildCategoryListPayload,
   buildListingDetailsActions,
   buildListingListPayload,
+  buildWhatsAppPrefilledText,
+  buildWhatsAppPrefillUrl,
   formatListingDetailsText,
   formatWhatsAppUrl,
   sanitizeDescription,
@@ -130,7 +132,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(sanitizeDescription('')).toBe('');
   });
 
-  it('formats business details cleanly without phone, whatsapp lines, or raw wa.me URLs', () => {
+  it('formats business name with bold + italic and concise description', () => {
     const listing: DirectoryListing = {
       id: 'uuid-test',
       name: 'లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్',
@@ -149,26 +151,47 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
         listing_id: 'CPL-BIZ-134',
         category: 'Engineering & Welding',
         category_te: 'ఇంజనీరింగ్ & వెల్డింగ్',
+        subcategory: 'Welding',
+        subcategory_te: 'వెల్డింగ్',
         maps_url: 'https://maps.google.com/?q=17.25,78.95',
       },
     };
 
     const details = formatListingDetailsText(listing);
-    expect(details).toContain('లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్');
-    expect(details).toContain('⭐ [Featured]');
-    expect(details).toContain('✅ [Verified]');
-    expect(details).toContain('ఆర్క్ వెల్డింగ్');
-    expect(details).toContain('షట్టర్ తయారీ');
-    expect(details).toContain('https://maps.google.com/?q=17.25,78.95');
 
-    // CRITICAL: Must NOT contain Phone or WhatsApp informational lines or wa.me URLs
+    // 1. Business name: bold + italic
+    expect(details).toContain('🏪 *_లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్_*');
+
+    // 2. Concise description rendered
+    expect(details).toContain('📝 లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్ - Engineering in Choutuppal');
+
+    // 3. Category and Subcategory absence
+    expect(details).not.toContain('Category:');
+    expect(details).not.toContain('Subcategory:');
+    expect(details).not.toContain('ఇంజనీరింగ్ & వెల్డింగ్');
+    expect(details).not.toContain('Engineering & Welding');
+
+    // 4. Separate phone and WhatsApp lines absence
     expect(details).not.toContain('Phone:');
     expect(details).not.toContain('WhatsApp:');
+
+    // 5. Raw wa.me URL absence in visible details
     expect(details).not.toContain('wa.me');
+
+    // 6. Synthetic contact suffix removal without damaging legitimate text
     expect(details).not.toContain('Contact: 9701601613');
+
+    // 7. Genuine services displayed as bullets
+    expect(details).toContain('*Services*');
+    expect(details).toContain('• ఆర్క్ వెల్డింగ్');
+    expect(details).toContain('• షట్టర్ తయారీ');
+
+    // 9. Address shown only when available
+    expect(details).toContain('📍 *Address*\nగాంధీ చౌక్, చౌటుప్పల్');
+
+    // Defensive check
     expect(details).not.toContain('undefined');
     expect(details).not.toContain('null');
-    expect(details).not.toContain('N/A');
   });
 
   it('renders services as bullet points only when actual services exist, suppresses when empty', () => {
@@ -189,7 +212,8 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     };
 
     const detailsNoServices = formatListingDetailsText(listingNoServices);
-    expect(detailsNoServices).not.toContain('Services:');
+    // 8. Services section omitted when genuine services are missing
+    expect(detailsNoServices).not.toContain('Services');
     expect(detailsNoServices).not.toContain('•');
 
     // Listing with actual services
@@ -198,36 +222,76 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       services: ['CCTV సెక్యూరిటీ సిస్టమ్స్', 'ఇన్వర్టర్ & బ్యాటరీ సేల్స్'],
     };
     const detailsWithServices = formatListingDetailsText(listingWithServices);
-    expect(detailsWithServices).toContain('Services:');
+    expect(detailsWithServices).toContain('*Services*');
     expect(detailsWithServices).toContain('• CCTV సెక్యూరిటీ సిస్టమ్స్');
     expect(detailsWithServices).toContain('• ఇన్వర్టర్ & బ్యాటరీ సేల్స్');
   });
 
-  it('suppresses location map URL if maps_url is blank or missing', () => {
-    const listingNoMap: DirectoryListing = {
-      id: 'uuid-nomap',
-      name: 'No Map Shop',
+  it('shows address only when available and suppresses when empty', () => {
+    const listingNoAddr: DirectoryListing = {
+      id: 'uuid-noaddr',
+      name: 'లక్ష్మి స్టోర్స్',
       category_slug: 'services',
       phone: '9885374861',
       whatsapp_phone: '9885374861',
+      address: null,
+      area: null,
       city: 'Choutuppal',
       services: [],
       business_hours: {},
       status: 'active',
       is_verified: false,
       is_premium: false,
-      metadata: {
-        listing_id: 'CPL-BIZ-001',
-        maps_url: '',
-      },
+      metadata: { listing_id: 'CPL-BIZ-001' },
     };
 
-    const details = formatListingDetailsText(listingNoMap);
-    expect(details).not.toContain('Location Map');
-    expect(details).not.toContain('https://maps.google.com');
+    const detailsNoAddr = formatListingDetailsText(listingNoAddr);
+    expect(detailsNoAddr).not.toContain('Address');
+    expect(detailsNoAddr).not.toContain('📍');
+
+    const listingWithArea: DirectoryListing = {
+      ...listingNoAddr,
+      area: 'హైవే జంక్షన్, చౌటుప్పల్',
+    };
+    const detailsWithArea = formatListingDetailsText(listingWithArea);
+    expect(detailsWithArea).toContain('📍 *Address*\nహైవే జంక్షన్, చౌటుప్పల్');
   });
 
-  it('builds listing details navigation buttons (Back, All Categories, Business Menu)', () => {
+  it('builds WhatsApp prefilled Telugu message with Choutuppal App branding and genuine services', () => {
+    const listing: DirectoryListing = {
+      id: 'uuid-wa',
+      name: 'లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్',
+      category_slug: 'engineering-welding',
+      phone: '9701601613',
+      whatsapp_phone: '9701601613',
+      description: 'లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్ - Engineering in Choutuppal. Contact: 9701601613',
+      services: ['ఆర్క్ వెల్డింగ్', 'షట్టర్ తయారీ'],
+      city: 'Choutuppal',
+      business_hours: {},
+      status: 'active',
+      is_verified: true,
+      is_premium: false,
+      metadata: { listing_id: 'CPL-BIZ-134' },
+    };
+
+    const prefillText = buildWhatsAppPrefilledText(listing);
+
+    // 10. WhatsApp prefilled text generated for the correct business
+    expect(prefillText).toContain('🏪 వ్యాపారం: లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్');
+    expect(prefillText).toContain('📝 వివరాలు: లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్ - Engineering in Choutuppal');
+    expect(prefillText).toContain('• ఆర్క్ వెల్డింగ్');
+    expect(prefillText).toContain('• షట్టర్ తయారీ');
+    expect(prefillText).toContain('దయచేసి మీ సేవల వివరాలు తెలియజేయగలరు.');
+    // Choutuppal branding
+    expect(prefillText).toContain('🌐 Choutuppal App — మన చౌటుప్పల్, మన వ్యాపారాలు.');
+
+    // 11. Telugu text and URL encoding handled correctly
+    const prefillUrl = buildWhatsAppPrefillUrl(listing);
+    expect(prefillUrl).toContain('https://wa.me/919701601613?text=');
+    expect(prefillUrl).toContain(encodeURIComponent('🏪 వ్యాపారం: లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్'));
+  });
+
+  it('builds listing details navigation with exactly 3 buttons (Call Now, WhatsApp, Back)', () => {
     const listing: DirectoryListing = {
       id: 'uuid-1',
       name: 'Test Shop',
@@ -249,24 +313,29 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       listingPage: 2,
     });
 
-    // 1. Reply buttons (Meta max 3, <= 20 chars each)
-    expect(actions.buttons.length).toBeLessThanOrEqual(3);
-    expect(actions.buttons[0]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
-    expect(actions.buttons[1]).toEqual({ id: 'dir_browse', title: '📁 All Categories' });
-    expect(actions.buttons[2]).toEqual({ id: 'dir_back_biz_menu', title: '🏠 Business Menu' });
+    // Exactly 3 reply buttons: [📞 Call Now], [💬 WhatsApp], [🔙 Back]
+    expect(actions.buttons.length).toBe(3);
+    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-001', title: '📞 Call Now' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-001', title: '💬 WhatsApp' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
+
+    // Excludes All Categories and Business Menu from details buttons
+    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(false);
+    expect(actions.buttons.some((b) => b.id === 'dir_back_biz_menu')).toBe(false);
+
     for (const btn of actions.buttons) {
       expect(btn.title.length).toBeLessThanOrEqual(20);
     }
     expect(actions.bodyText.length).toBeLessThanOrEqual(1024);
 
-    // 2. Sections list fallback
+    // List fallback rows
     expect(actions.sections[0].rows.length).toBe(3);
-    expect(actions.sections[0].rows[0].id).toBe('dir_listpage_automobile_2');
-    expect(actions.sections[0].rows[1].id).toBe('dir_browse');
-    expect(actions.sections[0].rows[2].id).toBe('dir_back_biz_menu');
+    expect(actions.sections[0].rows[0].id).toBe('dir_call_CPL-BIZ-001');
+    expect(actions.sections[0].rows[1].id).toBe('dir_wa_CPL-BIZ-001');
+    expect(actions.sections[0].rows[2].id).toBe('dir_listpage_automobile_2');
   });
 
-  it('handles uncategorized category by providing All Categories and Business Menu', () => {
+  it('handles uncategorized category by providing dir_browse as Back button', () => {
     const listing: DirectoryListing = {
       id: 'uuid-uncat',
       name: 'Uncategorized Shop',
@@ -288,9 +357,10 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       listingPage: 1,
     });
 
-    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
-    expect(actions.buttons.some((b) => b.id === 'dir_back_biz_menu')).toBe(true);
-    expect(actions.buttons.length).toBeLessThanOrEqual(3);
+    expect(actions.buttons.length).toBe(3);
+    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-099', title: '📞 Call Now' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-099', title: '💬 WhatsApp' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_browse', title: '🔙 Back' });
   });
 
   it('queries database with status in (active, published) filter and excludes pending records', async () => {
