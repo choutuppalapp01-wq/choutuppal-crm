@@ -59,7 +59,6 @@ import {
   buildListingListPayload,
   getListingById,
   buildListingDetailsActions,
-  formatWhatsAppUrl,
 } from "@/lib/directory/whatsapp-directory";
 import type { InteractiveButton } from "@/lib/whatsapp/meta-api";
 import { FEATURE_FLAGS, isFeatureEnabled } from "@/lib/flags";
@@ -1250,6 +1249,56 @@ async function handleReplyForActiveRun(
           directory_action: "view_details",
           listing_id: listingId,
         });
+
+        // Automatically send the Native Contact Card immediately afterward
+        const phone = (listing.phone || "").trim();
+        const wa = (listing.whatsapp_phone || listing.phone || "").trim();
+        const contactPhone = phone || wa;
+
+        if (contactPhone) {
+          try {
+            const { whatsapp_message_id: contactWamid } = await engineSendContact({
+              accountId: run.account_id,
+              userId: run.user_id,
+              conversationId: run.conversation_id!,
+              contactId: run.contact_id!,
+              contacts: [
+                {
+                  name: listing.name,
+                  first_name: listing.name,
+                  org: {
+                    company: listing.name,
+                    title: listing.category_slug || "Business",
+                  },
+                  phones: [
+                    {
+                      phone: contactPhone,
+                      type: "WORK",
+                      wa_id: wa || contactPhone,
+                    },
+                  ],
+                },
+              ],
+            });
+
+            await logEvent(db, run.id, "message_sent", run.current_node_key, {
+              node_type: "send_contact",
+              whatsapp_message_id: contactWamid,
+              directory_action: "auto_contact_card",
+              listing_id: listingId,
+            });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error("[directory] auto engineSendContact error:", errMsg);
+            await logEvent(db, run.id, "error", run.current_node_key, {
+              reason: "contact_card_send_failed",
+              detail: errMsg,
+              directory_action: "auto_contact_card",
+              listing_id: listingId,
+            });
+          }
+        }
+
         return { consumed: true, flow_run_id: run.id, outcome: "advanced" };
       }
     }

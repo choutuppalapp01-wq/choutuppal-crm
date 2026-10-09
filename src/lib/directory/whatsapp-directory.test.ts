@@ -10,6 +10,7 @@ import {
   buildListingListPayload,
   formatListingDetailsText,
   formatWhatsAppUrl,
+  sanitizeDescription,
   getActiveCategories,
   getActiveListingsByCategory,
   getListingById,
@@ -102,7 +103,34 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(page1.sections[0].rows.some((r) => r.id === 'dir_item_CPL-BIZ-001')).toBe(true);
   });
 
-  it('formats business details cleanly without null, undefined, or empty labels', () => {
+  it('sanitizes synthetic contact suffixes from description without destroying meaningful content', () => {
+    // 1. Synthetic suffix from CSV import
+    expect(
+      sanitizeDescription('S.S. ఆటో ఎలక్ట్రికల్ వర్క్స్ - Automobile in Choutuppal. Contact: 9885374861'),
+    ).toBe('S.S. ఆటో ఎలక్ట్రికల్ వర్క్స్ - Automobile in Choutuppal');
+
+    // 2. Trailing Contact without period
+    expect(
+      sanitizeDescription('Automobile electrical service in Choutuppal Contact: 9885374861'),
+    ).toBe('Automobile electrical service in Choutuppal');
+
+    // 3. Meaningful description without contact suffix
+    expect(
+      sanitizeDescription('చౌటుప్పల్లో ఆటోమొబైల్ ఎలక్ట్రికల్ మరియు మెకానిక్ సేవలు.'),
+    ).toBe('చౌటుప్పల్లో ఆటోమొబైల్ ఎలక్ట్రికల్ మరియు మెకానిక్ సేవలు.');
+
+    // 4. Genuine numbers preserved (24/7, Plot 42)
+    expect(
+      sanitizeDescription('24/7 అత్యవసర సేవలు అందుబాటులో ఉన్నాయి. Contact: 9885374861'),
+    ).toBe('24/7 అత్యవసర సేవలు అందుబాటులో ఉన్నాయి');
+
+    // 5. Empty / null / undefined handled cleanly
+    expect(sanitizeDescription(null)).toBe('');
+    expect(sanitizeDescription(undefined)).toBe('');
+    expect(sanitizeDescription('')).toBe('');
+  });
+
+  it('formats business details cleanly without phone, whatsapp lines, or raw wa.me URLs', () => {
     const listing: DirectoryListing = {
       id: 'uuid-test',
       name: 'లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్',
@@ -111,6 +139,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       whatsapp_phone: '9701601613',
       address: 'గాంధీ చౌక్, చౌటుప్పల్',
       city: 'Choutuppal',
+      description: 'లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్ - Engineering in Choutuppal. Contact: 9701601613',
       services: ['ఆర్క్ వెల్డింగ్', 'షట్టర్ తయారీ'],
       business_hours: { raw: '9 AM - 8 PM' },
       status: 'active',
@@ -128,12 +157,50 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(details).toContain('లక్ష్మి గణపతి ఇంజనీరింగ్ వర్క్స్');
     expect(details).toContain('⭐ [Featured]');
     expect(details).toContain('✅ [Verified]');
-    expect(details).toContain('9701601613');
-    expect(details).toContain('https://wa.me/919701601613');
+    expect(details).toContain('ఆర్క్ వెల్డింగ్');
+    expect(details).toContain('షట్టర్ తయారీ');
     expect(details).toContain('https://maps.google.com/?q=17.25,78.95');
+
+    // CRITICAL: Must NOT contain Phone or WhatsApp informational lines or wa.me URLs
+    expect(details).not.toContain('Phone:');
+    expect(details).not.toContain('WhatsApp:');
+    expect(details).not.toContain('wa.me');
+    expect(details).not.toContain('Contact: 9701601613');
     expect(details).not.toContain('undefined');
     expect(details).not.toContain('null');
     expect(details).not.toContain('N/A');
+  });
+
+  it('renders services as bullet points only when actual services exist, suppresses when empty', () => {
+    // Listing with empty services
+    const listingNoServices: DirectoryListing = {
+      id: 'uuid-noservices',
+      name: 'రహీమ్ వెల్డింగ్ వర్క్స్',
+      category_slug: 'engineering-welding',
+      phone: '9640201084',
+      whatsapp_phone: '9640201084',
+      city: 'Choutuppal',
+      services: [],
+      business_hours: {},
+      status: 'active',
+      is_verified: false,
+      is_premium: false,
+      metadata: { listing_id: 'CPL-BIZ-048' },
+    };
+
+    const detailsNoServices = formatListingDetailsText(listingNoServices);
+    expect(detailsNoServices).not.toContain('Services:');
+    expect(detailsNoServices).not.toContain('•');
+
+    // Listing with actual services
+    const listingWithServices: DirectoryListing = {
+      ...listingNoServices,
+      services: ['CCTV సెక్యూరిటీ సిస్టమ్స్', 'ఇన్వర్టర్ & బ్యాటరీ సేల్స్'],
+    };
+    const detailsWithServices = formatListingDetailsText(listingWithServices);
+    expect(detailsWithServices).toContain('Services:');
+    expect(detailsWithServices).toContain('• CCTV సెక్యూరిటీ సిస్టమ్స్');
+    expect(detailsWithServices).toContain('• ఇన్వర్టర్ & బ్యాటరీ సేల్స్');
   });
 
   it('suppresses location map URL if maps_url is blank or missing', () => {
@@ -160,7 +227,7 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(details).not.toContain('https://maps.google.com');
   });
 
-  it('builds listing details actions with interactive reply buttons and navigation', () => {
+  it('builds listing details navigation buttons (Back, All Categories, Business Menu)', () => {
     const listing: DirectoryListing = {
       id: 'uuid-1',
       name: 'Test Shop',
@@ -183,10 +250,10 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     });
 
     // 1. Reply buttons (Meta max 3, <= 20 chars each)
-    expect(actions.buttons.length).toBe(3);
-    expect(actions.buttons[0]).toEqual({ id: 'dir_call_CPL-BIZ-001', title: '📞 Call' });
-    expect(actions.buttons[1]).toEqual({ id: 'dir_wa_CPL-BIZ-001', title: '💬 WhatsApp' });
-    expect(actions.buttons[2]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
+    expect(actions.buttons.length).toBeLessThanOrEqual(3);
+    expect(actions.buttons[0]).toEqual({ id: 'dir_listpage_automobile_2', title: '🔙 Back' });
+    expect(actions.buttons[1]).toEqual({ id: 'dir_browse', title: '📁 All Categories' });
+    expect(actions.buttons[2]).toEqual({ id: 'dir_back_biz_menu', title: '🏠 Business Menu' });
     for (const btn of actions.buttons) {
       expect(btn.title.length).toBeLessThanOrEqual(20);
     }
@@ -199,41 +266,12 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
     expect(actions.sections[0].rows[2].id).toBe('dir_back_biz_menu');
   });
 
-  it('includes Call button and omits WhatsApp button when WhatsApp phone is blank', () => {
+  it('handles uncategorized category by providing All Categories and Business Menu', () => {
     const listing: DirectoryListing = {
-      id: 'uuid-callonly',
-      name: 'Call Only Shop',
-      category_slug: 'automobile',
+      id: 'uuid-uncat',
+      name: 'Uncategorized Shop',
+      category_slug: null,
       phone: '9885374861',
-      whatsapp_phone: '',
-      city: 'Choutuppal',
-      services: [],
-      business_hours: {},
-      status: 'active',
-      is_verified: false,
-      is_premium: false,
-      metadata: { listing_id: 'CPL-BIZ-002' },
-    };
-
-    const actions = buildListingDetailsActions({
-      listing,
-      categorySlug: 'automobile',
-      listingPage: 1,
-    });
-
-    expect(actions.buttons.some((b) => b.id === 'dir_call_CPL-BIZ-002')).toBe(true);
-    expect(actions.buttons.some((b) => b.id.startsWith('dir_wa_'))).toBe(false);
-    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
-    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
-    expect(actions.buttons.length).toBeLessThanOrEqual(3);
-  });
-
-  it('includes WhatsApp button and omits Call button when phone is blank', () => {
-    const listing: DirectoryListing = {
-      id: 'uuid-waonly',
-      name: 'WhatsApp Only Shop',
-      category_slug: 'automobile',
-      phone: '',
       whatsapp_phone: '9885374861',
       city: 'Choutuppal',
       services: [],
@@ -241,47 +279,15 @@ describe('WhatsApp Dynamic Directory — Unit Tests', () => {
       status: 'active',
       is_verified: false,
       is_premium: false,
-      metadata: { listing_id: 'CPL-BIZ-003' },
+      metadata: { listing_id: 'CPL-BIZ-099' },
     };
 
     const actions = buildListingDetailsActions({
       listing,
-      categorySlug: 'automobile',
+      categorySlug: 'uncategorized',
       listingPage: 1,
     });
 
-    expect(actions.buttons.some((b) => b.id.startsWith('dir_call_'))).toBe(false);
-    expect(actions.buttons.some((b) => b.id === 'dir_wa_CPL-BIZ-003')).toBe(true);
-    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
-    expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
-    expect(actions.buttons.length).toBeLessThanOrEqual(3);
-  });
-
-  it('omits both Call and WhatsApp buttons when phone and WhatsApp phone are blank', () => {
-    const listing: DirectoryListing = {
-      id: 'uuid-nophone',
-      name: 'No Phone Shop',
-      category_slug: 'automobile',
-      phone: '',
-      whatsapp_phone: '',
-      city: 'Choutuppal',
-      services: [],
-      business_hours: {},
-      status: 'active',
-      is_verified: false,
-      is_premium: false,
-      metadata: { listing_id: 'CPL-BIZ-004' },
-    };
-
-    const actions = buildListingDetailsActions({
-      listing,
-      categorySlug: 'automobile',
-      listingPage: 1,
-    });
-
-    expect(actions.buttons.some((b) => b.id.startsWith('dir_call_'))).toBe(false);
-    expect(actions.buttons.some((b) => b.id.startsWith('dir_wa_'))).toBe(false);
-    expect(actions.buttons.some((b) => b.id === 'dir_listpage_automobile_1')).toBe(true);
     expect(actions.buttons.some((b) => b.id === 'dir_browse')).toBe(true);
     expect(actions.buttons.some((b) => b.id === 'dir_back_biz_menu')).toBe(true);
     expect(actions.buttons.length).toBeLessThanOrEqual(3);

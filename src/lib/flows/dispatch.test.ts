@@ -950,6 +950,7 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
       ];
 
       engineSendInteractiveButtons.mockClear();
+      engineSendContact.mockClear();
       const result = await dispatch({
         kind: "interactive_reply",
         reply_id: "dir_item_CPL-BIZ-001",
@@ -959,14 +960,35 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
 
       expect(result.consumed).toBe(true);
       expect(result.outcome).toBe("advanced");
+
+      // 1. Clean listing details message sent first with navigation buttons
       expect(engineSendInteractiveButtons).toHaveBeenCalledWith(
         expect.objectContaining({
           bodyText: expect.stringContaining("S.S. Auto Electrical Works"),
           buttons: expect.arrayContaining([
-            { id: "dir_call_CPL-BIZ-001", title: "📞 Call" },
-            { id: "dir_wa_CPL-BIZ-001", title: "💬 WhatsApp" },
             { id: "dir_listpage_automobile_1", title: "🔙 Back" },
+            { id: "dir_browse", title: "📁 All Categories" },
+            { id: "dir_back_biz_menu", title: "🏠 Business Menu" },
           ]),
+        }),
+      );
+      const detailsBody = ((engineSendInteractiveButtons.mock.calls as any)[0][0] as any).bodyText;
+      expect(detailsBody).not.toContain("Phone:");
+      expect(detailsBody).not.toContain("WhatsApp:");
+      expect(detailsBody).not.toContain("wa.me");
+      expect(detailsBody).not.toContain("Contact: 9885374861");
+
+      // 2. Native Contact Card sent immediately afterward
+      expect(engineSendContact).toHaveBeenCalledTimes(1);
+      expect(engineSendContact).toHaveBeenCalledWith(
+        expect.objectContaining({
+          contacts: [
+            expect.objectContaining({
+              name: "S.S. Auto Electrical Works",
+              first_name: "S.S. Auto Electrical Works",
+              phones: [{ phone: "9885374861", type: "WORK", wa_id: "9885374861" }],
+            }),
+          ],
         }),
       );
     });
@@ -1139,6 +1161,56 @@ describe("dispatchInboundToFlows — entry triggers (#490)", () => {
           bodyText: expect.stringContaining("సాంకేతిక లోపం ఏర్పడింది"),
         }),
       );
+      expect(
+        h.state.inserted.some(
+          (i) =>
+            i.table === "flow_run_events" &&
+            (i.row as any).event_type === "error" &&
+            (i.row as any).payload?.reason === "contact_card_send_failed",
+        ),
+      ).toBe(true);
+    });
+
+    it("9. dir_item_* handles automatic engineSendContact failure gracefully with error logging", async () => {
+      h.state.categories = sampleCategories;
+      h.state.listings = sampleListings;
+      h.state.activeRuns = [
+        {
+          id: "active-run-item-err",
+          flow_id: "flow-biz",
+          account_id: "acct-1",
+          user_id: "u-1",
+          contact_id: "ct-1",
+          conversation_id: "cv-1",
+          status: "active",
+          current_node_key: "biz_menu",
+          vars: { dir_mode: true, dir_category: "automobile", dir_list_page: 1 },
+          reprompt_count: 0,
+        },
+      ];
+      h.state.nodes = [
+        {
+          id: "node-biz-menu",
+          flow_id: "flow-biz",
+          node_key: "biz_menu",
+          node_type: "send_list",
+          config: { text: "menu", button_label: "btn", sections: [] },
+        },
+      ];
+
+      engineSendInteractiveButtons.mockClear();
+      engineSendContact.mockRejectedValueOnce(new Error("Meta rate limit"));
+
+      const result = await dispatch({
+        kind: "interactive_reply",
+        reply_id: "dir_item_CPL-BIZ-001",
+        reply_title: "S.S. Auto Electrical Works",
+        meta_message_id: "m-item-err-1",
+      });
+
+      expect(result.consumed).toBe(true);
+      expect(result.outcome).toBe("advanced");
+      expect(engineSendInteractiveButtons).toHaveBeenCalledTimes(1);
       expect(
         h.state.inserted.some(
           (i) =>

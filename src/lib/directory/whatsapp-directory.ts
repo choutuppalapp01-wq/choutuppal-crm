@@ -392,8 +392,22 @@ export async function getListingById(
 }
 
 /**
+ * Sanitizes description text by removing synthetic contact number suffixes
+ * (e.g. ". Contact: 9885374861" or "Contact: 9885374861") without destroying
+ * meaningful descriptions or unrelated numbers.
+ */
+export function sanitizeDescription(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/\s*[.,-]?\s*Contact:\s*\+?\d{10,12}\s*$/i, '')
+    .replace(/\s*[.,-]?\s*Contact:\s*\+?\d{10,12}\b/gi, '')
+    .trim();
+}
+
+/**
  * Formats a business listing into a rich WhatsApp text details card.
  * Suppresses empty/null fields cleanly.
+ * Does NOT display phone, WhatsApp numbers, raw wa.me URLs, or synthetic contact suffixes.
  */
 export function formatListingDetailsText(item: DirectoryListing): string {
   const parts: string[] = [];
@@ -422,20 +436,6 @@ export function formatListingDetailsText(item: DirectoryListing): string {
     parts.push(`🏠 *Address:* ${item.address.trim()}`);
   }
 
-  if (item.phone && item.phone.trim()) {
-    parts.push(`📞 *Phone:* ${item.phone.trim()}`);
-  }
-
-  const wa = item.whatsapp_phone || item.phone;
-  if (wa && wa.trim()) {
-    const waUrl = formatWhatsAppUrl(wa);
-    parts.push(`💬 *WhatsApp:* ${wa.trim()} (${waUrl})`);
-  }
-
-  if (item.alternate_phone && item.alternate_phone.trim()) {
-    parts.push(`📱 *Alternate Phone:* ${item.alternate_phone.trim()}`);
-  }
-
   const rawHours =
     item.metadata?.business_hours ||
     item.business_hours?.raw ||
@@ -444,12 +444,16 @@ export function formatListingDetailsText(item: DirectoryListing): string {
     parts.push(`🕒 *Timings:* ${String(rawHours).trim()}`);
   }
 
-  if (item.description && item.description.trim()) {
-    parts.push(`\n📝 *About:*\n${item.description.trim()}`);
+  const cleanDesc = sanitizeDescription(item.description);
+  if (cleanDesc) {
+    parts.push(`\n📝 *About:*\n${cleanDesc}`);
   }
 
   if (item.services && item.services.length > 0) {
-    parts.push(`\n🛠️ *Services:*\n${item.services.map((s) => `• ${s}`).join('\n')}`);
+    const validServices = item.services.filter((s) => s && s.trim());
+    if (validServices.length > 0) {
+      parts.push(`\n🛠️ *Services:*\n${validServices.map((s) => `• ${s.trim()}`).join('\n')}`);
+    }
   }
 
   if (item.metadata?.maps_url && item.metadata.maps_url.trim()) {
@@ -461,10 +465,10 @@ export function formatListingDetailsText(item: DirectoryListing): string {
 
 /**
  * Builds the interactive action navigation for a listing details view.
- * Produces up to 3 interactive reply buttons:
- * - 📞 Call (when phone is present)
- * - 💬 WhatsApp (when whatsapp_phone / phone is present)
- * - 📁 All Categories / 🔙 Back
+ * Produces up to 3 interactive reply buttons for navigation:
+ * - 🔙 Back (returns to listings list)
+ * - 📁 All Categories
+ * - 🏠 Business Menu
  * Also preserves sections for list-based consumers.
  */
 export function buildListingDetailsActions(args: {
@@ -482,7 +486,6 @@ export function buildListingDetailsActions(args: {
   // Enforce Meta's 1024-char body limit
   const detailsText = truncate(rawDetails, 1024);
 
-  const listingId = listing.metadata?.listing_id || listing.id;
   const buttons: InteractiveButton[] = [];
   const addedIds = new Set<string>();
 
@@ -493,27 +496,15 @@ export function buildListingDetailsActions(args: {
     }
   };
 
-  // 1. Call Button (when phone is present and not blank)
-  const phone = (listing.phone || '').trim();
-  if (phone) {
-    addButton(`dir_call_${listingId}`, '📞 Call');
-  }
-
-  // 2. WhatsApp Button (when whatsapp_phone is present and not blank)
-  const wa = (listing.whatsapp_phone || '').trim();
-  if (wa) {
-    addButton(`dir_wa_${listingId}`, '💬 WhatsApp');
-  }
-
-  // 3. Navigation: Back to category listings page if in a category, else All Categories
+  // 1. Navigation: Back to category listings page if in a category, else All Categories
   if (categorySlug && categorySlug !== 'uncategorized') {
     addButton(`dir_listpage_${categorySlug}_${listingPage || 1}`, '🔙 Back');
-  } else {
-    addButton('dir_browse', '📁 All Categories');
   }
 
-  // If still room (e.g. either phone or wa was absent), add All Categories / Business Menu
+  // 2. All Categories
   addButton('dir_browse', '📁 All Categories');
+
+  // 3. Main Business Menu
   addButton('dir_back_biz_menu', '🏠 Business Menu');
 
   const rows: InteractiveListRow[] = [];
